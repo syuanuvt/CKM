@@ -1,10 +1,10 @@
 #' The function generates datasets that follow the typical K-means model with the option of including masking variables - variables that do not contribute to the clusters.
 #' As a simplistic version, the current function restricts the means of all signaling variables to be equal within each cluster, while the variance to be equal across all variables and clusters.
 #'
-#' @param n.obs the total number of observations
-#' @param n.cluster the total number of clusters
-#' @param n.validvar the total number of signaling variables
-#' @param n.noisevar the total number of masking variables
+#' @param n.obs a positive integer indicating the number of observations
+#' @param n.cluster a positive integer indicating the number of clusters
+#' @param n.validvar an integer indicating the number of signaling variables
+#' @param n.noisevar an integer indicating the number of masking variables
 #' @param mu a vector of length \code{n.cluster} whole element indicates the mean value of each cluster. It could also be a number that indicates the distance of neighboring clusters
 #' @param var a number indicates the variance of each variable
 #' @param varsplit either 0 or 1 (default value is 0); when 1, the variance of half of the variables equal var/2
@@ -33,7 +33,11 @@ DataGenCKM <- function(n.obs, n.cluster, n.validvar, n.noisevar, mu, var, varspl
   }
 
   n.var <- n.validvar + n.noisevar
-  nk <- rep(n.obs / n.cluster, n.cluster)
+  nk <- rep(NA, n.cluster)
+  for(i in 1:(n.cluster-1)){
+    nk[i] <- floor(n.obs/n.cluster)
+  }
+  nk[n.cluster] <- n.obs - floor(n.obs/n.cluster)*(n.cluster-1)
 
   ## create the score matrix
   partition.matrix <- matrix(0, nrow = n.obs, ncol = n.cluster)
@@ -85,5 +89,5 @@ DataGenCKM <- function(n.obs, n.cluster, n.validvar, n.noisevar, mu, var, varspl
 
   sd.matrix <- scale(generate.matrix)
 
-  return(list(data = sd.matrix, cluster.assign = cluster.assign))
+  return(list(data = sd.matrix, cluster.assign = cluster.assign, mu = mu))
 }

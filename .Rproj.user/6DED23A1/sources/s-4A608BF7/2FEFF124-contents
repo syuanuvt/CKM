@@ -1,0 +1,103 @@
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(psych)
+library(lavaan)
+library(semTools)
+
+##pre-load data sets
+#setwd("C:/Users/Shuai Yuan/Documents/covid")
+study1 <- read.csv(file = "Study 1 data.csv", sep = ";")
+study1$Country <- as.factor(study1$Country)
+study1$Violator <- as.factor(study1$Violator)
+## descriptives
+study1 %>% group_by(Country) %>%
+  count(gender)
+study1 %>% group_by(Country) %>%
+  summarise(mean=mean(age),sd=sd(age), a = mean(coronaS1Q3), b = mean(coronaS1Q2), c= mean(coronaS1Q1))
+## recoding and computation of the reliability coefficients
+study1 <- study1 %>% mutate(coronaS1Q3_R=8-coronaS1Q3,
+                          coronaS2Q3_R=8-coronaS2Q3)
+judgment_S1 <- study1 %>% dplyr::select(coronaS1Q1,coronaS1Q2,coronaS1Q3_R)
+judgment_S2 <- study1 %>% dplyr::select(coronaS2Q1,coronaS2Q2,coronaS2Q3_R)
+alpha(judgment_S1)
+alpha(judgment_S2)
+
+#Measurement invariance
+model <- 'S1=~coronaS1Q2+coronaS1Q1+coronaS1Q3_R
+S2=~coronaS2Q2+coronaS2Q1+coronaS2Q3_R
+coronaS1Q3_R ~~ coronaS2Q3_R
+'
+## configural invariance
+cfa.config <- lavaan::cfa(model, data=study1, group="Country")
+summary(cfa.config,fit.measure=T, standardized=T)
+## full metric invariance 
+cfa.metric.full <- lavaan::cfa(model, data=study1, group="Country",group.equal = c("loadings"))
+summary(cfa.metric.full,fit.measure=T, standardized=T)
+## partial metric invariance
+cfa.metric <- lavaan::cfa(model, data=study1, group="Country",group.equal = c("loadings"), group.partial = c("S1=~coronaS1Q1"))
+summary(cfa.metric,fit.measure=T, standardized=T)
+## compare the above models
+compareFit(cfa.config,cfa.metric.full)
+compareFit(cfa.config,cfa.metric)
+
+############# Hypothesis testing
+## freely estimated parameters
+model.full <- 'S1=~coronaS1Q2+coronaS1Q1+coronaS1Q3_R
+S2=~coronaS2Q2+coronaS2Q1+coronaS2Q3_R
+S1 ~ Violator + c(d,d)*age + c(f,f)*gender
+S2 ~ Violator + c(e,e)*age + c(g,g)*gender
+coronaS1Q3_R ~~ coronaS2Q3_R'
+sem.results <- sem(model.full, data=study1, group="Country",group.equal = c("loadings"),group.partial = c("S1=~coronaS1Q1"))
+summary(sem.results, fit.measure = T, standardized = T)
+
+###################################
+## freely estimated parameter for Scenario 1
+model.st1 <- 'S1=~coronaS1Q2+coronaS1Q1+coronaS1Q3_R
+S2=~coronaS2Q2+coronaS2Q1+coronaS2Q3_R
+S1 ~ c(a,a)*Violator + c(d,d)*age + c(f,f)*gender
+S2 ~ Violator + c(e,e)*age + c(g,g)*gender
+coronaS1Q3_R ~~ coronaS2Q3_R'
+sem.results.st1 <- sem(model.st1, data=study1, group="Country",group.equal = c("loadings"),group.partial = c("S1=~coronaS1Q1"))
+summary(sem.results.st1, fit.measure = T, standardized = T)
+anova(sem.results, sem.results.st1)
+####################################
+## freely estimated parameter for Scenario 2
+model.st2 <- 'S1=~coronaS1Q2+coronaS1Q1+coronaS1Q3_R
+S2=~coronaS2Q2+coronaS2Q1+coronaS2Q3_R
+S1 ~ Violator + c(d,d)*age + c(f,f)*gender
+S2 ~ c(b,b)*Violator + c(e,e)*age + c(g,g)*gender
+coronaS1Q3_R ~~ coronaS2Q3_R'
+sem.results.st2 <- sem(model.st2, data=study1, group="Country",group.equal = c("loadings"),group.partial = c("S1=~coronaS1Q1"))
+summary(sem.results.st2, fit.measure = T, standardized = T)
+anova(sem.results, sem.results.st2)
+##########################################
+##Supplementary analysis and plots
+study1 <- study1 %>% mutate(judgmentS1=(coronaS1Q1+coronaS1Q2+coronaS1Q3_R)/3,
+                          judgmentS2=(coronaS2Q1+coronaS2Q2+coronaS2Q3_R)/3)
+study1long <- gather(study1, key="Scenario", value="Judgment", judgmentS1,judgmentS2)
+study1long <- study1long %>% 
+  mutate(Scenario=recode(Scenario,"judgmentS1"=-1,"judgmentS2"=1))
+judgment_test <- anova_test(data=study1long,dv=Judgment,wid=num,
+                            within=Scenario,between=c(Country,Violator),effect.size="pes")
+judgment_test
+study1long %>% 
+  group_by(Scenario) %>% 
+  get_summary_stats(Judgment,type="mean_sd")
+
+#Elaboration on the culture by target interaction
+study1long %>% group_by(Country) %>% 
+  anova_test(dv=Judgment,wid=num,between=Violator,type=1,effect.size="pes")
+study1long %>% 
+  group_by(Country,Violator) %>% 
+  get_summary_stats(Judgment,type="mean_sd")
+
+#Plot
+study1long <- study1long %>% 
+  mutate(Scenario=recode(Scenario,'-1'="Test kits",'1'="Disinfectants"),
+         Country=recode(Country,'-1'="The US",'1'="China"),
+         Violator=recode(Violator,'-1'="Other",'1'="Self"))
+plot <- ggboxplot(study1long, x = "Country", y = "Judgment", 
+                   fill = "Violator",facet.by = "Scenario")+ylim(1,5)+ylab("Moral acceptability")
+
+

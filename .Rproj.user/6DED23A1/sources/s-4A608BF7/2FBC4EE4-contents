@@ -1,0 +1,71 @@
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+#setwd("C:/Users/Shuai Yuan/surfdrive/CSCR/situation1_new")
+#setwd("C:/Users/Shuai Yuan/surfdrive/CSCR/sim1/situation 1")
+setwd("C:/Users/Shuai Yuan/surfdrive/CSCR/sim1_new/situation1_5")
+
+rep <- 1:20
+conditions <- expand.grid(pnoise_x = c(.2,.3), pnoise_y = .1,
+                          pmean_x = c(.1,.5,.9), pmean_y = c(.1,.5,.9),
+                          p_combase = c(.75, .9), alpha_test = .95,
+                          rep = rep)
+results <- matrix(nrow = nrow(conditions), ncol = 15)
+for(i in 1:nrow(conditions)){
+  if(file.exists(paste0(i,".RData"))){
+    load(paste0(i,".RData"))
+    results[i,] <- compute_results
+  }
+}
+condition_results <- as.data.frame(cbind(conditions, results))
+names(condition_results)[8:22] <- c("cscr.oldpart","cscr.newpart","cscr.error",
+                                    "icluster.oldpart","iclutser.newpart","icluster.error",
+                                    "cssca.oldpart","cssca.newpart","cssca.error",
+                                    "cr.oldpart","cr.newpart","cr.error",
+                                    "cwmulti.oldpart","cwmulti.newpart","cwmulti.error")
+summary.error <- tidyr::gather(condition_results, methods, error, c(cscr.error, icluster.error, cssca.error, cr.error, cwmulti.error), factor_key=TRUE)
+levels(summary.error$methods) <- c("CSCR", "iCluster+", "CSSCA+", "CR", "CWMultiple")
+summary.error.nona <- summary.error[!is.na(summary.error$error),]
+setwd("C:/Users/Shuai Yuan/surfdrive/CSCR/plots")
+summary.error.nona %>%
+  dplyr::filter(pmean_y == .1 | pmean_y == .5) %>%
+  ggplot(aes(x=pmean_x, y=error, fill=methods)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_grid(pnoise_x~pmean_x, scale="free")+
+  coord_cartesian(ylim = quantile(summary.error.nona$error, c(0, 0.9))) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        text = element_text(size = 12, family = "serif")) + ylab("Error")
+b <- summary.error.nona %>%
+  dplyr::group_by(pmean_x, pnoise_x, methods) %>%
+  dplyr::summarise(error = mean(error))
+###############################################
+###############################################
+summary.oldpart <- tidyr::gather(condition_results, methods, oldpart, c(cscr.oldpart, icluster.oldpart, cssca.oldpart, cr.oldpart, cwmulti.oldpart), factor_key=TRUE)
+levels(summary.oldpart$methods) <- c("CSCR", "iCluster+", "CSSCA+", "CR", "CWMultiple")
+summary.oldpart.nona <- summary.oldpart[!is.na(summary.oldpart$oldpart),]
+summary.oldpart.nona %>%
+  #dplyr::filter(pmean_y == .1 | pmean_y == .5) %>%
+  ggplot(aes(x=pmean_x, y=oldpart, fill=methods)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_grid(pnoise_x~pmean_x, scale="free")+
+  coord_cartesian(ylim = quantile(summary.oldpart.nona$oldpart, c(0.1, 0.9))) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        text = element_text(size = 12, family = "serif")) + ylab("Classification of existing observations")
+a <- summary.oldpart.nona %>%
+  dplyr::filter(alpha == .95) %>%
+  dplyr::group_by(pmean_x, pnoise_x, methods) %>%
+  dplyr::summarise(oldpart = mean(oldpart))
+################################################
+################################################
+summary.newpart <- tidyr::gather(condition_results, methods, newpart, c(cscr.newpart, iclutser.newpart, cssca.newpart, cr.newpart, cwmulti.newpart), factor_key=TRUE)
+levels(summary.newpart$methods) <- c("CSCR", "iCluster+", "CSSCA+", "CR", "CWMultiple")
+summary.newpart.nona <- summary.newpart[!is.na(summary.newpart$newpart),]
+c <- summary.newpart.nona %>%
+  dplyr::filter(alpha == .95) %>%
+  dplyr::group_by(pmean_x, p_combase, methods, pnoise_y) %>%
+  dplyr::summarise(newpart = mean(newpart))

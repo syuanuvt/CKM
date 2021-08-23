@@ -8,13 +8,15 @@
 #' @param maxnum the parameter is only useful when the "grid search with a zoom" strategy is applied. It restricts the maximal number of values searched over in any iteration. The default value is set at 10.
 #' @param n.rep the number of permutated datasets when calculating the gap statistic
 #' @param kmeans_starts the number of starts used in the kmeans algorithm
-#' @return @return The function will return a ckm object that is the list of five elements. The first denotes the selected number of masking variables; the second includes all indicies of signaling variables; the third is a vector illustrating cluster assignment; the forth is the pre-determined or selected "optimal" number of clusters; the fifth is the original dataset.
+#' @param recal whether a final step of KM is carried out to update cluster partitions (recommended when the number of signaling variable is small)
+#' @param sr whether a scree ratio test has been added in the end (recommended when the number of clusters k is large (i.e., k > 15))
+#' @return The function will return a ckm object that is the list of five elements. The first denotes the selected number of masking variables; the second includes all indicies of signaling variables; the third is a vector illustrating cluster assignment; the forth is the pre-determined or selected "optimal" number of clusters; the fifth is the original dataset.
 #' @examples
 #' ncluster <- 3
 #' ckm.sel.var <- CKMSelVar(dataset, ncluster)
 #'
 
-CKMSelVar <- function(dataset, n.cluster, search = "dep", maxnum = 10, n.rep = 20, kmeans_starts = 10){
+CKMSelVar <- function(dataset, n.cluster, search = "dep", maxnum = 10, n.rep = 20, kmeans_starts = 20, recal = TRUE, sr = TRUE){
 
   n.obs <- nrow(dataset)
   n.var <- ncol(dataset)
@@ -40,7 +42,7 @@ CKMSelVar <- function(dataset, n.cluster, search = "dep", maxnum = 10, n.rep = 2
 
     ## the original dataset
     for (i in 1:(n.var-2)) {
-      method3.card <- CardKMeans(dataset, n.cluster, search.grid[i], kmeans_starts)
+      method3.card <- CardKMeans(dataset, n.cluster, search.grid[i], kmeans_starts, recal)
       valid.set <- method3.card$variables
       ori.between <- method3.card$betss
 
@@ -86,7 +88,7 @@ CKMSelVar <- function(dataset, n.cluster, search = "dep", maxnum = 10, n.rep = 2
 
       gap <- rep(NULL, length(grid.iter))
       for (i in 1:length(grid.iter)){
-        method3.card <- CardKMeans(dataset, n.cluster, grid.iter[i], kmeans_starts)
+        method3.card <- CardKMeans(dataset, n.cluster, grid.iter[i], kmeans_starts, recal)
         valid.set <- method3.card$variables
         ori.between <- method3.card$betss
         rep.bet <- rep(NULL, n.rep)
@@ -124,11 +126,48 @@ CKMSelVar <- function(dataset, n.cluster, search = "dep", maxnum = 10, n.rep = 2
     }
   }
 
-  opt.results <- CardKMeans(dataset, n.cluster, opt.n.noise, kmeans_starts)
-  opt.cluster.assign <- opt.results$cluster.assign
-  opt.variables <- opt.results$variables
+  if(sr == TRUE){
+    n.small <- opt.n.noise - 5
+    n.big <- opt.n.noise + 5
+    if(n.small < 1){
+      n.small <- 1
+    }
+    if(n.big >= (ncol(dataset)-2)){
+      n.big <- ncol(dataset)-2
+    }
+    alt.n.noise <- n.big:n.small
+    alt.leng <- length(alt.n.noise)
+    ori <- rep(NA,alt.leng)
+    ind <- 0
+    opt.set <- list()
+    for (i in alt.n.noise) {
+      ind <- ind + 1
+      opt.set[[ind]] <- CardKMeans(dataset, n.cluster, i, n.rep, recal)
+      ori[ind] <- opt.set[[ind]]$betss
+    }
+    chull.opt <- CHull(cbind(1:ind, ori), "upper")
+    opt.sr.value <- chull.opt$Solution$complexity[1]
+    opt.n.noise.old <- opt.n.noise
+    if(opt.sr.value!=1 & opt.sr.value != alt.leng){
+      opt.n.noise <- alt.n.noise[opt.sr.value]
+      opt.cluster.assign <- opt.set[[opt.sr.value]]$cluster.assign
+      opt.variables <- opt.set[[opt.sr.value]]$variables
+    }
+    if(opt.sr.value==1 | opt.sr.value == alt.leng){
+      opt.sr.value <- which(alt.n.noise == opt.n.noise.old)
+      opt.n.noise <- alt.n.noise[opt.sr.value]
+      opt.cluster.assign <- opt.set[[opt.sr.value]]$cluster.assign
+      opt.variables <- opt.set[[opt.sr.value]]$variables
+    }
+  }
 
-  results <- list(n.noisevar = opt.n.noise, signaling.set = opt.variables, cluster.assign = opt.cluster.assign, opt.cluster = n.cluster, org.data = dataset, gap = max(gap))
+  if(sr == FALSE){
+    opt.results <- CardKMeans(dataset, n.cluster, opt.n.noise, kmeans_starts, recal)
+    opt.cluster.assign <- opt.results$cluster.assign
+    opt.variables <- opt.results$variables
+  }
+
+  results <- list(n.noisevar = opt.n.noise, signaling.set = opt.variables, cluster.assign = opt.cluster.assign, opt.cluster = n.cluster, org.data = dataset)
   class(results) <- "ckm"
   return(results)
 }

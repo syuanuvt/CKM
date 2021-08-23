@@ -13,4 +13,5 @@ Depends:
     RSpectra,
     cluster,
     GGally,
-    viridis
+    viridis,
+    multichull

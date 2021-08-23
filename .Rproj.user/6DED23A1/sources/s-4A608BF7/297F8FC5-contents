@@ -1,0 +1,77 @@
+rep <- 1:30
+conditions <- expand.grid(pnoise_x = c(.2,.3),
+                          n_cluster = c(3,4),
+                          component_set = 1:4,
+                          pmean_x = c(.1,.5),
+                          pmean_y = c(.1,.5),
+                          rep = rep)
+conditions$opt_com <- rep(NA, nrow(conditions))
+conditions$opt_cluster <- rep(NA, nrow(conditions))
+conditions$opt_cluster1 <- rep(NA, nrow(conditions))
+conditions$opt_cluster2 <- rep(NA, nrow(conditions))
+conditions$opt_common <- rep(NA, nrow(conditions))
+conditions$acc_com <- rep(NA, nrow(conditions))
+conditions$acc_cluster <- rep(NA, nrow(conditions))
+conditions$acc_common <- rep(NA, nrow(conditions))
+conditions$true_com <- rep(NA, nrow(conditions))
+conditions$true_common <- rep(NA, nrow(conditions))
+conditions$acc_assign <- rep(NA, nrow(conditions))
+
+for(i in 1:nrow(conditions)){
+  set <- conditions$component_set[i]
+  component_list <- list(c(2,0,0),c(1,1,0),c(3,0,0),c(1,1,1))
+  conditions$true_com[i] <- sum(component_list[[set]])
+  conditions$true_common[i] <- component_list[[set]][1]
+}
+
+setwd("C:/Users/Shuai Yuan/Documents/CSCR/sim2")
+for(i in 1:nrow(conditions)){
+  if(!i %in% c(1648,1663,1672,1681,1685,1686)){
+    load(paste0(i,".RData"))
+    conditions$opt_com[i] <- results$opt_com
+    conditions$opt_cluster[i] <- results$opt_cluster
+    conditions$opt_cluster1[i] <- results$opt_cluster_new
+    conditions$opt_cluster2[i] <- results$opt_cluster_new_1
+    conditions$opt_common[i] <- results$best_comb[1]
+  }
+}
+  for(i in 1:nrow(conditions)){
+    if(!i %in% c(1648,1663,1672,1681,1685,1686)){
+      load(paste0(i,".RData"))
+      conditions$acc_cluster[i] <- results$opt_cluster == conditions$n_cluster[i]
+      conditions$acc_com[i] <- results$opt_com == conditions$true_com[i]
+      conditions$acc_common[i] <- results$best_comb[1] == conditions$true_common[i]
+    }
+  }
+
+for(i in 1:nrow(conditions)){
+  if(!i %in% c(1648,1663,1672,1681,1685,1686)){
+    load(paste0(i,".RData"))
+    conditions$acc_assign[i] <- adjustedRandIndex(results$results_s4$cluster_assign, results$sim.data$cluster_mem)
+  }
+}
+
+conditions %>%
+  dplyr::filter(pnoise_x == .2) %>%
+  dplyr::summarise(acc_cluster = mean(acc_cluster, na.rm = TRUE),
+                   acc_com = mean(acc_com, na.rm = TRUE),
+                   acc_common = mean(acc_common, na.rm = TRUE))
+
+conditions %>%
+  #dplyr::filter(pnoise_x == .2) %>%
+  dplyr::filter(acc_cluster == 1 & acc_com == 1) %>%
+  group_by(component_set, pnoise_x) %>%
+  dplyr::summarise(acc_common = mean(acc_common, na.rm = TRUE))
+
+conditions %>%
+  dplyr::filter(pnoise_x == .3) %>%
+  dplyr::summarise(acc_cluster = mean(acc_cluster, na.rm = TRUE),
+                   acc_com = mean(acc_com, na.rm = TRUE),
+                   acc_common = mean(acc_common, na.rm = TRUE))
+
+conditions %>%
+  dplyr::filter(acc_cluster == 1) %>%
+  group_by(pnoise_x,acc_common) %>%
+  dplyr::summarise(acc_assign = mean(acc_assign, na.rm = TRUE))
+
+  

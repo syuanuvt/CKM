@@ -1,10 +1,11 @@
-#' The current function calculates the Cardinality KMeans (i.e. CKM) solution, without selecting the number of masking variables and clusters (they are assumed known)
-#' Note that the current function is an internal function that should not be used by the end-users
+#' The current function calculates the Cardinality KMeans (i.e. CKM) solution, without selecting the number of irrelevant variables
+#' Note that the current function is an internal function
 #'
 #' @param dataset the orginal dataset on which CKM operates
 #' @param n.cluster the total number of clusters
 #' @param n.noisevar the total number of masking variables
-#' @param num_starts_kmeans the number of starts for the conventional KM analysis (note that in CKM, the conventional KM operates in the lower dimensions). The default value is 10
+#' @param num_starts_kmeans the number of starts for the conventional KM analysis. The default value is 10
+#' @param recal whether a final step of KM is carried out to update cluster partitions (recommended when the number of signaling variable is small)
 #' @return a list of three elements. The first is the vector that indicates the cluster assignment, the second is a vector that contains the
 #' indices of all signaling variables, and the third is the total value of between-cluster sum of squares
 #' @examples
@@ -12,7 +13,7 @@
 #' nnoisevar <- 100
 #' CardKMeans(dataset, ncluster, nnoisevar)
 
-CardKMeans <- function(dataset, n.cluster, n.noisevar, num_starts_kmeans = 10){
+CardKMeans <- function(dataset, n.cluster, n.noisevar, num_starts_kmeans = 10, recal = TRUE){
   global <- ComputeSCA(dataset, n.cluster, n.noisevar,  MAXITER = 100, stop_value = 1e-3, rational = 1)
 
   #############################################################################################
@@ -96,12 +97,13 @@ CardKMeans <- function(dataset, n.cluster, n.noisevar, num_starts_kmeans = 10){
     if (minus < converge)  conv <- 1
   }
 
-  ###########################################################################################
-  ## calculate the final values that serve as the outputs
-  kmeans.full <- kmeans(dataset[,variable.set], centers = n.cluster, nstart = num_starts_kmeans, iter.max = 50)
-  kmeans.results <- kmeans.full$cluster
-  kmeans.betweens <- kmeans.full$betweenss
+  if(recal){
+    ###########################################################################################
+    ## calculate the final values that serve as the outputs
+    kmeans.full <- kmeans(dataset[,variable.set], centers = n.cluster, nstart = num_starts_kmeans, iter.max = 50)
+    kmeans.results <- kmeans.full$cluster
+    new.loss <- kmeans.full$betweenss
+  }
 
-
-  return(list(cluster.assign = kmeans.results, variables = variable.set, betss = kmeans.betweens))
+  return(list(cluster.assign = kmeans.results, variables = variable.set, betss = new.loss))
 }
