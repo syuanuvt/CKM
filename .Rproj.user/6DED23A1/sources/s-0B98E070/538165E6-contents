@@ -1,0 +1,414 @@
+#### examine the novel variable selection methods in k-means
+library(sparcl)
+library(rARPACK)
+library(combinat)
+library(mclust)
+library(dplyr)
+library(bookdown)
+#library("BiocManager")
+#BiocManager::install("Biobase")
+#library(Biobase)
+library("doParallel")
+library(snow)
+library(mclust)
+library(clustrd)
+library(cluster)
+library(remotes)
+#install.packages("RSpectra")
+library(GGally)
+library(CKM)
+library(fpc)
+library(NbClust)
+library(viridis)
+library(multichull)
+#install.packages("viridis")
+
+##################################################################################
+### the hill climbing methdos (not developed by us)
+withinss = function(X,G,K){
+  if(is.vector(X) && is.atomic(X)){
+    group = list()
+    wcss = 0
+    for(j in 1:K){
+      group[[j]] = which(G == j)
+      l = length(group[[j]])
+      if(l>1){
+        wcss = wcss + var(X[group[[j]]])*(l-1)
+      }
+    }
+  } else if (is.matrix(X)){
+    group = list()
+    wcss = 0
+    for(j in 1:K){
+      group[[j]] = which(G == j)
+      l = length(group[[j]])
+      if(l>1){
+        wcss = wcss + sum(apply(X[group[[j]],],2,var)*(l-1))
+      }
+    }
+  } else {
+    cat("X is niether a vector nor a matrix! \n")
+    return(NULL)
+  }
+
+  return(wcss)
+}
+
+Alternate= function(X, k,tot, initial_set, s, itermax, threshold){
+  p = dim(X)[2]
+  set0 = initial_set
+  set1 = c(0)
+  iternum = 0
+  while(iternum<= itermax && length(setdiff(set1,set0)) + length(setdiff(set0,set1)) > threshold ){
+    clustering = kmeans(X[,set0],iter.max = 20, centers=k,algorithm = "Hartigan-Wong",trace = 0,nstart=20)
+    result = clustering$cluster
+
+    wcss = apply(X,2,withinss,G = result, K = k)
+    iternum = iternum + 1
+
+    set1 = set0
+    set0 = which(rank((tot-wcss)/tot,ties.method = "random") > p-s)
+  }
+  out = list(final_set = set0, iternum = iternum, result = result, betweenss = clustering$betweenss)
+  return(out)
+}
+
+#compute within-cluster distance by clustering feature by feature, select S of size s based on this
+hill_climb_GSS = function(X,k,nperms=20,itermax,threshold,tolerance){
+  X = scale(X)
+  n = dim(X)[1]
+  p = dim(X)[2]
+  tot = apply(X,2,var)*(n-1)
+  permx <- list()
+  for(i in 1:nperms){
+    permx[[i]] <- matrix(NA, nrow=n, ncol=p)
+    for(j in 1:p) permx[[i]][,j] <- sample(X[,j])
+  }
+  wcss = rep(0,p)
+  for(j in 1:p){
+    clustering = kmeans(X[,j],iter.max = 10, centers = k,algorithm = "Hartigan-Wong", trace = 0)
+    wcss[j] = clustering$tot.withinss
+  }
+  rank0 = rank((tot-wcss)/tot,ties.method = "random")
+  golden.ratio = 2/(sqrt(5) +1)
+  iteration = 0
+  upper.bound = p
+  lower.bound = 1
+  p1 = floor(upper.bound - golden.ratio*(upper.bound-lower.bound))
+  p2 = floor(lower.bound + golden.ratio*(upper.bound-lower.bound))
+  #evaluate the gap statistics using p1 and p2
+  initial_set = which(rank0 > p-p1)
+  out1 = Alternate(X, k,tot, initial_set, p1, itermax, threshold)
+  permtots = rep(0,nperms)
+  for(t in 1:nperms){
+    permresult = kmeans(permx[[t]][,out1$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+    permtots[t] <- permresult$betweenss
+  }
+  gap1 = log(out1$betweenss) - mean(log(permtots))
+  initial_set = which(rank0 > p-p2)
+  out2 = Alternate(X, k,tot, initial_set, p2, itermax, threshold)
+  permtots = rep(0,nperms)
+  for(t in 1:nperms){
+    permresult = kmeans(permx[[t]][,out2$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+    permtots[t] <- permresult$betweenss
+  }
+  gap2 = log(out2$betweenss) - mean(log(permtots))
+
+  while(abs(upper.bound - lower.bound) > tolerance)
+  {
+    iteration = iteration + 1
+    if(gap2 < gap1) # then the maximum is to the left of x2
+    {
+      upper.bound = p2
+      p2 = p1
+      gap2 = gap1
+      p1 = floor(upper.bound - golden.ratio*(upper.bound - lower.bound))
+      #evaluate gaps for p1
+      initial_set = which(rank0 > p-p1)
+      out1 = Alternate(X, k,tot, initial_set, p1, itermax, threshold)
+
+      permtots = rep(0,nperms)
+      for(t in 1:nperms){
+        permresult = kmeans(permx[[t]][,out1$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+        permtots[t] <- permresult$betweenss
+      }
+      gap1 = log(out1$betweenss) - mean(log(permtots))
+    } else {
+      # the minimum is to the right of x1
+      lower.bound = p1
+      p1 = p2
+      gap1 = gap2
+      p2 = floor(lower.bound + golden.ratio * (upper.bound - lower.bound))
+      #evaluate gaps for p2
+      initial_set = which(rank0 > p-p2)
+      out2 = Alternate(X, k,tot, initial_set, p2, itermax, threshold)
+
+      permtots = rep(0,nperms)
+      for(t in 1:nperms){
+        permresult = kmeans(permx[[t]][,out2$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+        permtots[t] <- permresult$betweenss
+      }
+      gap2 = log(out2$betweenss) - mean(log(permtots))
+    }
+  }
+  s = floor((lower.bound + upper.bound)/2)
+  initial_set = which(rank0 > s)
+  out = Alternate(X, k,tot, initial_set, s, 2*itermax, threshold)
+  output = list(final_set = out$final_set, iternum = iteration, result = out$result, s = s, gap = max(gap1, gap2))
+  return(output)
+}
+
+## the function to find the local maxima
+localMaxima <- function(x) {
+  # Use -Inf instead if x is numeric (non-integer)
+  y <- diff(c(-.Machine$integer.max, x)) > 0L
+  rle(y)$lengths
+  y <- cumsum(rle(y)$lengths)
+  y <- y[seq.int(1L, length(y), 2L)]
+  if (x[[1]] == x[[2]]) {
+    y <- y[-1]
+  }
+  y
+}
+
+###############################
+### the simulation of model selection applied with SAS
+### note the analysis on the full set only need to be conducted once
+set.seed(970912)
+n.cluster <- c(3,5,15)
+n.noisevar <- c(5, 50, 250,1000)
+var <- 1
+n.validvar <- 50
+#maxclust <- 8
+n.rep <- 30
+nmu <- c(0.6,0.7, 0.8,1)
+con.rep <- 1:40
+condition2 <- expand.grid(ncluster = n.cluster, nnoisevar= n.noisevar, nmu = nmu, rep = con.rep)
+setwd("E:/Users/u1275970/Documents/CKM/sim3")
+no_cores <- 30
+c1 <- makePSOCKcluster(no_cores)
+registerDoParallel(c1)
+sim2_data <- foreach(h = 1:nrow(condition2),
+                     .packages = c("mclust", "combinat","multichull",
+                                   "fpc",   "rARPACK", "CKM", "RSpectra", "cluster", "NbClust"
+                     ), .combine=rbind) %dopar%{
+
+                       n.cluster <- condition2$ncluster[h]
+                       n.obs <- n.cluster * 50
+                       #n.obs <- condition2$nobs[h]
+                       n_noisevar <- condition2$nnoisevar[h]
+                       mu <- condition2$nmu[h]
+                       if(n.cluster == 3 | n.cluster == 5){
+                         search.grid <- 2:10
+                       }
+                       if(n.cluster == 30){
+                         search.grid <- 26:34
+                       }
+                       if(n.cluster == 15){
+                         search.grid <- 11:19
+                       }
+                       maxclust <- max(search.grid)
+                       minclust <- min(search.grid)
+
+                       searchclust <- length(search.grid)
+
+                       records <- matrix(nrow = 12, ncol = 2)
+                       colnames(records) <- c("nselect", "nvalid")
+
+                       ## data generation
+                       sim.data <- DataGenCKM(n.obs, n.cluster, n.validvar, n_noisevar, mu, var)
+                       dataset <- sim.data[[1]]
+                       cluster.assign <- sim.data[[2]]
+
+                       ## on the full datasets
+                       # kl
+                       results <- NbClust(dataset, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "kl", alphaBeale = 0.1)
+                       # best selected clusters
+                       records[1,1] <- results$Best.nc[1]
+                       # the number of noisy variabels
+                       records[1,2] <- ncol(dataset)
+
+                       # D indices
+                       results <- NbClust(dataset, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "dindex", alphaBeale = 0.1)
+                       index <- results$All.index
+                       index.dif <- rep(NA, (maxclust-minclust-1))
+                       for (j in (minclust+1):(maxclust-1)){
+                         i <- j - minclust
+                         index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+                       }
+                       records[2,1] <- which.min(index.dif) + minclust
+                       records[2,2] <- ncol(dataset)
+
+                       # global max and first max
+                       b <- clusGap_con(dataset, FUN=kmeans, K.min = minclust, K.max=maxclust, B=50, spaceH0 = "original",
+                                        nstart.o = 500, nstart.b = 30)
+                       #b <- clusGap_con(dataset, FUN=kmeans, nstart = 250, K.min = minclust, K.max=maxclust, B=clust.rep, spaceH0 = "original")
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")+(minclust-1)
+                       records[3,1] <- opt.cluster
+                       records[3,2] <- ncol(dataset)
+
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")+(minclust-1)
+                       records[4,1] <- opt.cluster
+                       records[4,2] <- ncol(dataset)
+
+                       # global max and first max for all (not necessary any more)
+                       #b <- clusGap_con(dataset[,1:50], FUN=kmeans, nstart = n.rep, K.min = minclust, K.max=maxclust, B=clust.rep, spaceH0 = "original")
+                       #opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")+(minclust-1)
+                       #records[17,1] <- opt.cluster
+                       #records[17,2] <- 50
+
+                       #opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")+(minclust-1)
+                       #records[18,1] <- opt.cluster
+                       #records[18,2] <- 50
+
+                       ###### SAS
+
+                       results.sel <- list()
+                       partition.sel <- list()
+                       ## number of variable selected (to be valid variables)
+                       n.sel <- rep(NA, searchclust-1)
+                       gap.sel <- rep(NA, searchclust-1)
+
+                       for (i in minclust:maxclust){
+                         results.gss <- hill_climb_GSS(dataset, i, nperms=n.rep,itermax=50,threshold=0,tolerance=1)
+                         results.sel[[(i-minclust+1)]] <- results.gss$final_set
+                         partition.sel[[(i-minclust+1)]] <- results.gss$result
+                         n.sel[(i-minclust+1)] <- results.gss$s
+                         gap.sel[(i-minclust+1)] <- results.gss$gap
+                       }
+
+                       valid.set.all <- Reduce(intersect, results.sel)
+                       valid.set.sas <- valid.set.all
+                       new.data <- dataset[,valid.set.all]
+                       b <- clusGap_con(new.data, FUN=kmeans, K.min = minclust, K.max=maxclust, B=50, spaceH0 = "original",
+                                        nstart.o = 500, nstart.b = 30)
+                       #b <- clusGap_con(new.data, FUN=kmeans, nstart = n.rep, K.min = minclust, K.max=maxclust, B=50, spaceH0 = "original")
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")
+                      
+                       n_validvar <- n.sel[opt.cluster]
+                       signaling.set.sas.g <- results.sel[[opt.cluster]]
+                       cluster.assign.test <- partition.sel[[opt.cluster]]
+
+                       records[5,1] <- opt.cluster + (minclust-1)
+                       records[5,2] <- n_validvar
+
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")
+                       n_validvar <- n.sel[opt.cluster]
+                       signaling.set.sas.f <- results.sel[[opt.cluster]]
+                       cluster.assign.test <- partition.sel[[opt.cluster]]
+
+                       records[6,1] <- opt.cluster + (minclust-1)
+                       records[6,2] <- n_validvar
+
+                       # kl
+                       results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "kl", alphaBeale = 0.1)
+                       # best selected clusters
+                       opt.cluster <- results$Best.nc[1]
+                       records[7,1] <- opt.cluster
+                       # the number of noisy variabels
+                       records[7,2] <- n.sel[(opt.cluster-minclust+1)]
+
+                       # D indices
+                       results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "dindex", alphaBeale = 0.1)
+                       index <- results$All.index
+                       index.dif <- rep(NA, (maxclust-minclust-1))
+                       for (j in (minclust+1):(maxclust-1)){
+                         i <- j - minclust
+                         index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+                       }
+                       opt.cluster<- which.min(index.dif) + minclust
+                       records[8,1] <- opt.cluster
+                       records[8,2] <- n.sel[(which.min(index.dif)+1)]
+
+                       ## global maximum on all possible values of gap statistics
+                       #opt.cluster <- which(gap.sel == max(gap.sel, na.rm = TRUE))[1] + 1
+                       # report the results
+                       #n_validvar <- n.sel[(opt.cluster - 1)]
+                       #records[9,1] <- opt.cluster
+                       #records[9,2] <- n_validvar
+
+                       ## first maximum on all possible values of gap statistics
+                       #opt.cluster <- localMaxima(gap.sel)[1] + 1
+                       # report the results
+                       #n_validvar <- n.sel[(opt.cluster - 1)]
+                       #records[10,1] <- opt.cluster
+                       #records[10,2] <- n_validvar
+
+                       ### CKM
+                       ## global max on stable set
+                      
+                       results <- try(CKMSelAll(dataset, minclust = minclust, maxclust=maxclust, kmeans_starts = 20))
+                       if(!inherits(results, "try-error")){
+
+                         records[9,1] <- results[[1]]$opt.cluster
+                         records[9,2] <- length(results[[1]]$signaling.set)
+                         stable.set <- results[[3]]
+        
+                         
+                         #n_validvar <- n.sel[(opt.cluster - 1)]
+                         #signaling.set.ckm.g <- results$results.sel[[(opt.cluster - minclust+1)]]
+                         #cluster.assign.test <- partition.sel[[(opt.cluster - 1)]]
+  
+                         ## first max on stable set
+                         b <- results[[2]]
+                         opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")
+                         #n_validvar <- length(results$results.sel[[opt.cluster ]])
+                         records[10,1] <- opt.cluster+ (minclust-1)
+                         #records[10,2] <- n_validvar
+                         #signaling.set.ckm.f <- results$results.sel[[opt.cluster]]
+  
+                         ## new dataset
+                         new.data <- dataset[,stable.set]
+                         # kl
+                         results_kl <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                            method = "kmeans", index = "kl", alphaBeale = 0.1)
+                         # best selected clusters
+                         opt.cluster <- results_kl$Best.nc[1]
+                         records[11,1] <- opt.cluster
+                         # the number of noisy variabels
+                         #records[11,2] <- n.sel[(opt.cluster-minclust+1)]
+  
+                         # D indices
+                         results_dindex <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                            method = "kmeans", index = "dindex", alphaBeale = 0.1)
+                         index <- results_dindex$All.index
+                         index.dif <- rep(NA, (maxclust-minclust-1))
+                         for (j in (minclust+1):(maxclust-1)){
+                           i <- j - minclust
+                           index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+                         }
+                         opt.cluster<- which.min(index.dif) + minclust
+                         records[12,1] <- opt.cluster
+                         #records[12,2] <- n.sel[(which.min(index.dif)+1)]
+                         
+                         #var.gap <- list(signaling.set.sas.g, signaling.set.sas.f,
+                        #                 signaling.set.ckm.g, signaling.set.ckm.f)
+  
+  
+                         #gap.sel <- results$gap
+                         ## global maximum on all possible values of gap statistics
+                         #opt.cluster <- which(gap.sel == max(gap.sel, na.rm = TRUE))[1] + 1
+                         # report the results
+                         #n_validvar <- length(results$results.sel[[(opt.cluster-1)]])
+                         #records[15,1] <- opt.cluster
+                         #records[15,2] <- n_validvar
+  
+                         ## first maximum on all possible values of gap statistics
+                         #opt.cluster <- localMaxima(gap.sel)[1] + 1
+                         # report the results
+                         #n_validvar <- n.sel[(opt.cluster - 1)]
+                         #records[16,1] <- opt.cluster
+                         #records[16,2] <- n_validvar
+                       }
+
+                       ### results
+                       results <- list(data = sim.data, records = records)
+
+                       save(results, file = paste0(h, ".RData"))
+                     }
+
+stopCluster(c1)

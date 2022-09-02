@@ -1,0 +1,221 @@
+#shiny app PlotCoord
+#basics
+rm(list = ls())
+library("shiny")
+library("ggplot2")
+library("colourpicker")
+library("ggfortify")
+library("tsne")
+library("viridis")
+library("dplyr")
+
+#download dataset
+load("~/Desktop/traineeship 2/Shiny App/dataset_large.RData")
+
+##### does not work with the var_ind and plot_ind selection!!!!!!!
+
+
+#input of the app
+ui <- fluidPage(
+  titlePanel("PlotCoord for the data"),
+  fluidRow(
+    column(4,ofsett=0,
+           textInput(inputId="title_coord", label="Title of the plot:", placeholder="PlotCoord for the data"),
+           radioButtons(inputId="coord_type", label = "Centroids or individual responses:", choiceNames = c("Centroids", "Individual responses"), choiceValues = c("centroids", "responses")),
+           conditionalPanel(
+             condition = "input.coord_type == 'centroids'",
+             radioButtons(inputId="var_name", label = "Show the variable names:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+             #radioButtons(inputId="var_ind", label = "var_ind", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+             textInput(inputId="title_x_axis_centroids", label="Title of the X-axis:", placeholder="Clusters"),
+             textInput(inputId="title_y_axis_centroids", label="Title of the Y-axis:", placeholder="Centroids")
+           ),
+           conditionalPanel(
+             condition="input.coord_type == 'responses'",
+             radioButtons(inputId="case_name", label = "Show the case names:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+             radioButtons(inputId="plot_ind", label = "Show the following cluster:", choiceNames = c("Cluster 1", "Cluster 2", "Cluster 3", "All"), choiceValues = c("1", "2", "3", "all")),
+             textInput(inputId="title_x_axis_responses", label="Title of the X-axis:", placeholder="Variables"),
+             textInput(inputId="title_y_axis_responses", label="Title of the Y-axis:", placeholder="Responses"),
+             fluidRow(
+               column(3, offset=0,
+                      textInput(inputId="cluster1_name", label="Name of cluster 1:", placeholder="Cluster 1"),
+                      colourInput(inputId="cluster1_color", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+               column(3,
+                      textInput(inputId="cluster2_name", label="Name of cluster 2:", placeholder="Cluster 2"),
+                      colourInput(inputId="cluster2_color", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+               column(3,
+                      textInput(inputId="cluster3_name", label="Name of cluster 3:", placeholder="Cluster 3"),
+                      colourInput(inputId="cluster3_color", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE)),
+             )
+           ),
+           radioButtons(inputId="file_type", label = "Select the file type:", choices = list("png", "pdf"))
+    ),
+    column(8,
+           textOutput("title_coord"),
+           plotOutput("coord"),
+           downloadButton('download_coord', 'Download the plot')
+    )
+  )
+)
+
+server <- function(input, output){
+  output$coord <- renderPlot({
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- length(dataset)-1
+    n.obs <- nrow(dataset)
+
+    if (input$coord_type == "centroids") {
+      cluster.assign <- dataset$cluster
+      new.data <- as.data.frame(dataset[,-ncol(dataset)])
+      cluster.center <- matrix(nrow = n.cluster, ncol = n.sig)
+      colnames(cluster.center) <- as.character(names(new.data))
+      for (i in 1:n.cluster){
+        if(sum(cluster.assign == i) != 1){
+          cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+        }
+        if(sum(cluster.assign == i) == 1){
+          cluster.center[i,] <- new.data[cluster.assign == i,]
+        }
+      }
+      cluster.plot <- as.data.frame(t(cluster.center))
+      for (i in 1:n.cluster){
+        colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+      }
+      if(input$var_name == "yes"){
+        cluster.plot$name <- colnames(new.data)
+        #if(input$var_ind == "no"){
+          a <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+                                  showPoints = TRUE, title = input$title_coord, alphaLines = .3, mapping = aes(label = name))+
+            scale_color_viridis(discrete = TRUE)+
+            ylab(input$title_y_axis_centroids) +
+            xlab(input$title_x_axis_centroids) +
+            theme(axis.title = element_text(size=20),
+                  title = element_text(size = 30),
+                  panel.border      = element_blank(),
+                  panel.background  = element_blank(),
+                  panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(),
+                  legend.text = element_text(hjust = 1),
+                  legend.title = element_blank(),
+                  legend.key.width = unit(.3, "cm"),
+                  axis.line = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.text.y = element_text( size = 16),
+                  axis.text.x = element_text( size = 16)) +
+            guides(color = FALSE, size = FALSE)
+          new.data <- a$data[a$data$variable == a$data$variable[1], ]
+          new.data$name <- cluster.plot$name
+          a +
+            geom_text(aes(label = name),  data=new.data, color = 'gray15',size=4, hjust =1.5)
+        #}
+      }
+      else {
+        #if(input$var_ind == "no"){
+          GGally::ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+                             showPoints = TRUE, title = input$title_coord, alphaLines = .3)+
+            scale_color_viridis(discrete = TRUE)+
+            ylab(input$title_y_axis_centroids) +
+            xlab(input$title_x_axis_centroids) +
+            theme(axis.title= element_text(size=20),
+                  title = element_text(size = 30),
+                  panel.border      = element_blank(),
+                  panel.background  = element_blank(),
+                  panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(),
+                  legend.text = element_text(hjust = 1),
+                  legend.title = element_blank(),
+                  legend.key.width = unit(.3, "cm"),
+                  axis.line = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.text.y = element_text( size = 16),
+                  axis.text.x = element_text( size = 16))
+        #}
+      }
+    }
+    else if(input$coord_type == "responses"){
+      n.cluster <- length(unique(dataset$cluster))
+      n.sig <- length(dataset)-1
+      n.obs <- nrow(dataset)
+      new.data <- as.data.frame(dataset)
+      new.data$cluster <- as.factor(new.data$cluster)
+
+      if (input$case_name == "yes") {
+        new.data$name <- rownames(new.data)
+        if (input$plot_ind == "all") {
+          cluster.plot <- new.data
+        }
+        else {
+          cluster.plot <- new.data %>%
+            dplyr::filter(cluster %in% input$plot_ind)
+        }
+
+        a <- GGally::ggparcoord(cluster.plot, columns = 1:n.sig, groupColumn = "cluster", scale = "globalminmax",
+                                showPoints = TRUE, title = input$title_coord, alphaLines = .3, mapping = aes(label = name, colour=as.factor(cluster)))+
+          scale_color_viridis(discrete = TRUE)+
+          scale_colour_manual(labels = c(input$cluster1_name, input$cluster2_name, input$cluster3_name), values= c(input$cluster1_color, input$cluster2_color, input$cluster3_color)) +
+          ylab(input$title_y_axis_responses) +
+          theme(axis.title = element_text(size=20),
+                title = element_text(size = 30),
+                panel.border      = element_blank(),
+                panel.background  = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                legend.text = element_text(hjust = 1),
+                legend.title = element_blank(),
+                legend.key.width = unit(.3, "cm"),
+                axis.line = element_blank(),
+                axis.ticks = element_blank(),
+                axis.text.y = element_text(size = 10, color = "black"),
+                axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1)) +
+          xlab(input$title_x_axis_responses) +
+          guides(color = FALSE, size = FALSE)
+        new.data <- a$data[a$data$variable == a$data$variable[1], ]
+        new.data$name <- cluster.plot$name
+        a +
+          geom_text(aes(label = name),  data=new.data, color = 'gray15',size=4, hjust =1.5)
+      }
+      else {
+        cluster.plot <- new.data
+        if (input$plot_ind == "all") {
+          cluster.plot <- new.data
+        }
+        else {
+          cluster.plot <- new.data %>%
+            dplyr::filter(cluster %in% as.numeric(input$plot_ind))
+        }
+        GGally::ggparcoord(cluster.plot, columns = 1:n.sig, groupColumn = "cluster", scale = "globalminmax",
+                           showPoints = TRUE, title = input$title_coord, alphaLines = .3, mapping = aes(colour=as.factor(cluster)))+
+          scale_color_viridis(discrete = TRUE)+
+          scale_colour_manual(labels = c(input$cluster1_name, input$cluster2_name, input$cluster3_name), values= c(input$cluster1_color, input$cluster2_color, input$cluster3_color)) +
+          ylab(input$title_y_axis_responses) +
+          theme(axis.title = element_text(size=20),
+                title = element_text(size = 30),
+                panel.border      = element_blank(),
+                panel.background  = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                legend.text = element_text(hjust = 1),
+                legend.title = element_blank(),
+                legend.key.width = unit(.3, "cm"),
+                axis.line = element_blank(),
+                axis.ticks = element_blank(),
+                axis.text.y = element_text(size = 10, color = "black"),
+                axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1)) +
+          xlab(input$title_x_axis_responses) +
+          guides(color = FALSE, size = FALSE)
+      }
+    }
+  })
+  output$download_coord <- downloadHandler(
+    filename = function(){
+      paste("PlotCoordn", input$title, input$file_type, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+}
+
+shinyApp(ui=ui, server=server)
+
+
+
+
+

@@ -1,0 +1,86 @@
+#shiny app PlotLD
+#basics
+rm(list = ls())
+library("shiny")
+library("ggplot2")
+library("colourpicker")
+library("ggfortify")
+library("tsne")
+
+#download dataset
+load("~/Desktop/traineeship 2/Shiny App/dataset_large.RData")
+
+#input of the app
+ui <- fluidPage(
+  titlePanel("Heat Map"),
+  fluidRow(
+    column(4,ofsett=0,
+           textInput(inputId="title", label="Title of the plot:", placeholder="heat map"),
+           varSelectInput(inputId="variable", label="Variable:", dataset),
+           radioButtons(inputId="file_type", label = "Select the file type:", choices = list("png", "pdf"))
+    ),
+    column(8,
+           textOutput("title_map"),
+           plotOutput("map"),
+           downloadButton('download_map', 'Download the heat map')
+    )
+  )
+)
+
+server <- function(input, output){
+  output$heat <- renderPlot({
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- ncol(dataset)-1
+    n.obs <- nrow(dataset)
+    
+    cluster.assign <- dataset$cluster
+    new.data <- as.data.frame(dataset[,-(n.sig+1)])
+    cluster.center <- matrix(nrow = n.cluster, ncol = n.sig)
+    colnames(cluster.center) <- as.character(names(new.data))
+    for (i in 1:n.cluster){
+      if(sum(cluster.assign == i) != 1){
+        cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+      }
+      if(sum(cluster.assign == i) == 1){
+        cluster.center[i,] <- new.data[cluster.assign == i,]
+      }
+    }
+    cluster.plot <- as.data.frame(t(cluster.center))
+    for (i in 1:n.cluster){
+      colnames(cluster.plot)[i] <- paste0("cluster ", i)
+    }
+    cluster.plot$variable <- colnames(new.data)
+    cluster.plot.new <- reshape(as.data.frame(cluster.plot),idvar="variable",varying=paste0("cluster ", seq(1, n.cluster)),
+                                timevar = "cluster", v.names = "value", direction="long")
+    levels(cluster.plot.new$cluster) <- paste0("cluster ", seq(1, n.cluster))
+    
+    ggplot(cluster.plot.new, aes(cluster, variable, fill= value)) +
+      geom_tile() +
+      scale_color_brewer(palette = "Set2")+
+      theme(axis.title=element_text(size=12,face="bold"),
+            panel.border      = element_blank(),
+            panel.background  = element_blank(),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            #panel.background = element_blank(),
+            legend.text = element_text(hjust = 1),
+            legend.title = element_blank(),
+            legend.key.width = unit(.3, "cm"),
+            axis.line = element_blank(),
+            axis.ticks = element_blank(),
+            #axis.title = element_blank(),
+            axis.text.y = element_text( size = 10, color = "black"),
+            axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1)) +
+      guides(color = FALSE, size = FALSE)
+  })
+}
+
+shinyApp (ui=ui, server=server)
+    
+    
+    
+    
+    
+    
+    
+    

@@ -1,0 +1,76 @@
+### shinyapp PlotUniVar
+#basics
+library("shiny")
+library("ggplot2")
+library("colourpicker")
+library("RColorBrewer")
+
+
+#download dataset
+load("~/Desktop/traineeship 2/Shiny App/dataset_large.RData")
+
+
+ui <- fluidPage(
+  titlePanel("Plot Distribution"),
+  fluidRow(
+    column(4,
+           selectInput(inputId="variable", label="Variable X-axis:", choices = names(dataset)),
+           textInput(inputId="title_dist", label="Title of the distribution:", placeholder="distribution of the variable"),
+           textInput(inputId="title_x_axis", label="Title of the X-axis:", placeholder="name of the variable"),
+           textInput(inputId="title_y_axis", label="Title of the Y-axis:", placeholder="number of observations"),
+           checkboxGroupInput(inputId="sample", label = "Select the sample:", choices = list("cluster 1", "cluster 2", "cluster 3", "entire sample"), selected = "entire sample"),
+           radioButtons(inputId="show_cluster", label = "Show the different clusters:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+           radioButtons(inputId="file_type", label = "Select the file type:", choices = list("png", "pdf"))
+    ),
+    column(8,
+           textOutput("title_dist"),
+           plotOutput("plot_uni"),
+           downloadButton('download_dist', 'Download the distribution')
+    )
+  )
+)
+
+server <- function(input, output) {
+
+
+  output$plot_uni <- renderPlot ({
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- ncol(dataset)-1
+    n.obs <- nrow(dataset)
+
+
+    new.data <- as.data.frame(dataset[,c(input$variable,"cluster")])
+    cluster.plot <- new.data
+    cluster.plot$id <- 1:nrow(cluster.plot)
+    cluster.plot.new <- reshape(as.data.frame(cluster.plot),idvar=c("id","cluster"),varying=names(cluster.plot)[1:(ncol(cluster.plot)-2)],
+                                v.names = "variable", direction="long")
+    cluster.plot.new$time <- as.factor(cluster.plot.new$time)
+    levels(cluster.plot.new$time) <- names(cluster.plot)[1:(ncol(cluster.plot)-2)]
+    cluster.plot.new$cluster <- as.factor(cluster.plot.new$cluster)
+    color <- as.factor(as.character(cluster.plot.new$cluster))
+    color.name <- brewer.pal(n = n.cluster, "Set2")
+    levels(color) <- color.name
+
+    ggplot(cluster.plot.new, aes(y=variable)) +
+      geom_histogram(position = "identity", bins = nrow(cluster.plot), fill = color)+
+      ylab("Responses") +
+      theme(axis.title=element_text(size=12,face="bold"),
+            panel.border      = element_blank(),
+            panel.background  = element_blank(),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            legend.text = element_text(hjust = 1),
+            legend.title = element_blank(),
+            legend.key.width = unit(.3, "cm"),
+            axis.line = element_blank(),
+            axis.ticks = element_blank(),
+            axis.text.y = element_text( size = 10, color = "black"),
+            axis.text.x = element_blank()) +
+      xlab("Variables") +
+      facet_wrap(~time)
+  })
+}
+
+shinyApp (ui=ui, server=server)
+
+

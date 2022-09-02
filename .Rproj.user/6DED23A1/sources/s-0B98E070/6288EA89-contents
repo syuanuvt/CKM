@@ -1,0 +1,218 @@
+#' Function to visualize clusters with a coordinate plot
+#'
+#' @param dataset a data frame or a matrix that contains (1) signaling variables and (2) the last column "cluster" indicating cluster assignment.
+#' @param type  a string that indicates the type of the plot. "centroids" = a centroid plot where each line represents a variable and it connects centroids of all clusters.
+#' "responses" = a response plot where each line represents one response and it connects scores over all variables. The default value is "centroids".
+#' @param var.ind Only useful when type = "centroids". A vector of length P (i.e., the number of variables) where the element i indicates the group of variable i. The default value is NULL.
+#' @param plot.ind Only useful when type = "responses". "all" or a vector of maximal length K (i.e., the number of clusters) indicates individuals from which clusters are to be plotted. The default value is "all".
+#' @param var.name Only useful when type = "centroids". A logic indicates whether the variable name is displayed (for plots of variables). The default value is false
+#' @param case.name Only useful when type = "responses". A logic indicates whether the case name is displayed (for plots of individuals). The default value is false
+#' @param color  The color palette for the plot. Users can specify a theme from "R color brewer". The default value is "Set2".
+
+#' @return A ggplot2 object that can be directly printed (with the command "print") or further processed
+#' @examples
+
+PlotCoord <- function(dataset, type = "centroids", var.ind = NULL, plot.ind = "all", case.name = FALSE, var.name = FALSE, color = "Set2"){
+
+  n.cluster <- length(unique(dataset$cluster))
+  n.sig <- ncol(dataset)-1
+  n.obs <- nrow(dataset)
+
+  if(type == "centroids"){
+
+  cluster.assign <- dataset$cluster
+  new.data <- as.data.frame(dataset[,-(n.sig+1)])
+  cluster.center <- matrix(nrow = n.cluster, ncol = n.sig)
+  colnames(cluster.center) <- as.character(names(new.data))
+
+  for (i in 1:n.cluster){
+    if(sum(cluster.assign == i) != 1){
+      cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+    }
+    if(sum(cluster.assign == i) == 1){
+      cluster.center[i,] <- new.data[cluster.assign == i,]
+    }
+  }
+
+  cluster.plot <- as.data.frame(t(cluster.center))
+  for (i in 1:n.cluster){
+    colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+  }
+    if(var.name){
+      cluster.plot$name <- colnames(new.data)
+      if(is.null(var.ind)){
+
+            a <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+                           showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3, mapping = aes(label = name))+
+            #scale_color_viridis(discrete = TRUE)+
+            scale_color_brewer(palette = "Set2")+
+            ylab("Centroids") +
+            xlab("Clusters") +
+            theme(axis.title=element_text(size=12,face="bold"),
+                    panel.border      = element_blank(),
+                    panel.background  = element_blank(),
+                    panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank(),
+                    #panel.background = element_blank(),
+                    legend.text = element_text(hjust = 1),
+                    legend.title = element_blank(),
+                    legend.key.width = unit(.3, "cm"),
+                    axis.line = element_blank(),
+                    axis.ticks = element_blank(),
+                    #axis.title = element_blank(),
+                    axis.text.y = element_text( size = 10, color = "black"),
+                    axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1)) +
+            guides(color = FALSE, size = FALSE)
+            new.data <- a$data[a$data$variable == a$data$variable[1], ]
+            new.data$name <- cluster.plot$name
+            final.plot <- a +
+              geom_text(aes(label = name),  data=new.data, color = 'gray15',size=4, hjust =1.5)
+            #print(a1)
+      }
+      if(!is.null(var.ind)){
+          cluster.plot$group <- var.ind[signaling.set]
+
+           a <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster, groupColumn = "group", scale = "globalminmax",
+                           showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3, mapping = aes(label = name))+
+            #scale_color_viridis(discrete = TRUE)+
+            scale_color_brewer(palette = "Set2")+
+            ylab("Centroids") +
+            xlab("Clusters") +
+            theme(axis.title=element_text(size=12,face="bold"),
+                   panel.border      = element_blank(),
+                   panel.background  = element_blank(),
+                   panel.grid.major = element_blank(),
+                   panel.grid.minor = element_blank(),
+                   #panel.background = element_blank(),
+                   legend.text = element_text(hjust = 1),
+                   legend.title = element_blank(),
+                   legend.key.width = unit(.3, "cm"),
+                   axis.line = element_blank(),
+                   axis.ticks = element_blank(),
+                   #axis.title = element_blank(),
+                   axis.text.y = element_text( size = 10, color = "black"),
+                   axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1)) +
+            guides(color = FALSE, size = FALSE)
+           new.data <- a$data[a$data$variable == a$data$variable[1], ]
+           new.data$name <- cluster.plot$name
+           final.plot <- a +
+             geom_text(aes(label = name),  data=new.data, color = 'gray15',size=4, hjust =1.5)
+           #print(a1)
+      }
+    }
+    if(!isTRUE(var.name)){
+      if(is.null(var.ind)){
+        final.plot <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+                           showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3)+
+          #scale_color_viridis(discrete = TRUE)+
+          scale_color_brewer(palette = "Set2")+
+          ylab("Centroids") +
+          xlab("Clusters") +
+          theme(axis.title=element_text(size=12,face="bold"),
+                panel.border      = element_blank(),
+                panel.background  = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                #panel.background = element_blank(),
+                legend.text = element_text(hjust = 1),
+                legend.title = element_blank(),
+                legend.key.width = unit(.3, "cm"),
+                axis.line = element_blank(),
+                axis.ticks = element_blank(),
+                #axis.title = element_blank(),
+                axis.text.y = element_text( size = 10, color = "black"),
+                axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1))
+      }
+      if(!is.null(var.ind)){
+        cluster.plot$group <- var.ind[signaling.set]
+        final.plot <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster, groupColumn = "group", scale = "globalminmax",
+                           showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3)+
+          #scale_color_viridis(discrete = TRUE)+
+          scale_color_brewer(palette = "Set2")+
+          ylab("Centroids") +
+          xlab("Clusters") +
+          theme(axis.title=element_text(size=12,face="bold"),
+                panel.border      = element_blank(),
+                panel.background  = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                #panel.background = element_blank(),
+                legend.text = element_text(hjust = 1),
+                legend.title = element_blank(),
+                legend.key.width = unit(.3, "cm"),
+                axis.line = element_blank(),
+                axis.ticks = element_blank(),
+                #axis.title = element_blank(),
+                axis.text.y = element_text( size = 10, color = "black"),
+                axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1))
+      }
+    }
+  }
+
+  if(type == "responses"){
+    new.data <- as.data.frame(dataset)
+    new.data$cluster <- as.factor(new.data$cluster)
+    if(case.name){
+      new.data$name <- rownames(new.data)
+    }
+    if(plot.ind == "all"){
+      cluster.plot <- new.data
+    }
+    if(plot.ind != "all"){
+      cluster.plot <- new.data %>%
+        dplyr::filter(cluster %in% plot.ind)
+    }
+    if(case.name){
+      a <- GGally::ggparcoord(cluster.plot, columns = 1:n.sig, groupColumn = "cluster", scale = "globalminmax",
+                               showPoints = TRUE, title = "Individual Responses", alphaLines = .3, mapping = aes(label = name))+
+          #scale_color_viridis(discrete = TRUE)+
+          ylab("Responses") +
+        scale_color_brewer(palette = "Set2")+
+        theme(axis.title=element_text(size=12,face="bold"),
+              panel.border      = element_blank(),
+              panel.background  = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              #panel.background = element_blank(),
+              legend.text = element_text(hjust = 1),
+              legend.title = element_blank(),
+              legend.key.width = unit(.3, "cm"),
+              axis.line = element_blank(),
+              axis.ticks = element_blank(),
+              #axis.title = element_blank(),
+              axis.text.y = element_text( size = 10, color = "black"),
+              axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1)) +
+          xlab("Variables") +
+          guides(color = FALSE, size = FALSE)
+      new.data <- a$data[a$data$variable == a$data$variable[1], ]
+      new.data$name <- cluster.plot$name
+      final.plot <- a +
+        geom_text(aes(label = name),  data=new.data, color = 'gray15',size=4, hjust =1.5)
+      #print(a1)
+    }
+    if(!case.name){
+      final.plot <- GGally::ggparcoord(cluster.plot, columns = 1:n.sig, groupColumn = "cluster", scale = "globalminmax",
+                         showPoints = TRUE, title = "Individual Responses", alphaLines = .3)+
+        #scale_color_viridis(discrete = TRUE)+
+          ylab("Responses") +
+        scale_color_brewer(palette = "Set2")+
+        theme(axis.title=element_text(size=12,face="bold"),
+              panel.border      = element_blank(),
+              panel.background  = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              #panel.background = element_blank(),
+              legend.text = element_text(hjust = 1),
+              legend.title = element_blank(),
+              legend.key.width = unit(.3, "cm"),
+              axis.line = element_blank(),
+              axis.ticks = element_blank(),
+              #axis.title = element_blank(),
+              axis.text.y = element_text(size = 10, color = "black"),
+              axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1)) +
+          xlab("Variables") +
+          guides(color = FALSE, size = FALSE)
+    }
+  }
+  return(final.plot)
+}

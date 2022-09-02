@@ -1,0 +1,17 @@
+hill_climb = function(X,k,s,itermax,threshold,tolerance,num_starts_kmeans=10){
+  X = scale(X)
+  n = dim(X)[1]
+  p = dim(X)[2]
+  tot = apply(X,2,var)*(n-1)
+  wcss = rep(0,p)
+  for(j in 1:p){
+    clustering = kmeans(X[,j],iter.max = 500, centers = k,algorithm = "Hartigan-Wong", trace = 0)
+    wcss[j] = clustering$tot.withinss
+  }
+  rank0 = rank((tot-wcss)/tot,ties.method = "random")
+
+  initial_set = which(rank0 > s)
+  out = Alternate(X, k,tot, initial_set, s, 2*itermax, threshold, num_starts_kmeans)
+  output = list(final_set = out$final_set, result = out$result, s = s)
+  return(output)
+}

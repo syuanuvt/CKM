@@ -1,0 +1,40 @@
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS="true")
+remotes::install_github("syuanuvt/CKM")
+library(CKM)
+library(fpc)
+library(cluster)
+library(mclust)
+setwd("C:/Users/Shuai Yuan/Documents/Tutorial/data")
+load("data_tutorial.RData")
+### KM analysis
+km <- kmeans(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]), centers = 3, nstart = 20)
+adjustedRandIndex(km$cluster, sel3$cluster.assign)
+classError(km$cluster, sel3$cluster.assign)
+#step 0: variable cenetering and standardization (already done in this data set)
+#step 1: select the number of clusters with an improved approach
+sel1 <- CKMSelAll(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]), minclust = 2, maxclust = 10)
+## select three clusters according to the scree plot
+#step 2: select the number of signaling variables with a combination of the gap statistic and a scree ratio test
+sel2 <- CKMSelVar(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]), 3)
+##step 3: select 47 signaling variables
+sel3 <- CKMSelNo(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]),3,47)
+##step 4: determine the stable set of signaling variables
+sel4 <- CKMStableSelect(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]),3,47)
+##step 5: plot
+## plot from the results of step 3
+to.plot <- emp.data.matrix.new[,3:ncol(emp.data.matrix.new)][,sel3$signaling.set]
+to.plot$cluster <- sel3$cluster.assign
+PlotCoord(to.plot, type = "responses")
+## plot from the results of step 4
+to.plot <- emp.data.matrix.new[,3:ncol(emp.data.matrix.new)][,sel4[[1]]]
+to.plot$cluster <- sel3$cluster.assign
+PlotCoord(to.plot, type = "responses")
+### note here the two results are the same
+##step 6: cluster validation
+validation.cluster <- clusterboot(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)][,sel3$signaling.set],B=100,bootmethod=
+    c("boot","noise","jitter"),clustermethod=kmeansCBI, krange=3,seed=1)
+validation.cluster$bootmean
+validation.cluster$bootrecover
+validation.cluster$noisemean
+validation.cluster$jittermean
+

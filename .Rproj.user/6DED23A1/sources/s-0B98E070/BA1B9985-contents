@@ -1,0 +1,69 @@
+#shiny app PlotCoord
+#basics
+rm(list = ls())
+library("shiny")
+library("ggplot2")
+library("colourpicker")
+library("ggfortify")
+library("tsne")
+library("viridis")
+library("dplyr")
+library("GGally")
+
+#download dataset
+#load("~/Desktop/traineeship 2/Shiny App/dataset_large.RData")
+setwd("C:/Users/Shuai Yuan/Documents/Tutorial")
+load("dataset_large.RData")
+
+ui <- fluidPage(
+  titlePanel("Bi-Var"),
+  fluidRow(
+    column(4,
+           textInput(inputId="title", label="Title of the plot:", placeholder="names of the variable"),
+           selectInput(inputId="variable", label="Variable X-axis:", choices = names(dataset)),
+           textInput(inputId="xaxis", label="Title of the X-axis:", placeholder="name of variable x"),
+           selectInput(inputId="y", label="Variable Y-axis:", choices = names(dataset)),
+           textInput(inputId="yaxis", label="Title of the Y-axis:", placeholder="name of variable y"),
+           radioButtons(inputId="plot_ind", label = "Show the following cluster:", choiceNames = c("Cluster 1", "Cluster 2", "Cluster 3", "All"), choiceValues = c("1", "2", "3", "all")),
+           radioButtons(inputId="file_type", label = "Select the file type:", choices=c("png", "pdf"))),
+    column(8,
+           plotOutput("bi_var"),
+           textOutput("title"),
+           downloadButton('download_plot', 'Download the plot'))
+  )
+)
+
+
+server <- function (input, output){
+  output$bi_var <- renderPlot ({
+
+  new.data <- as.data.frame(dataset[,c(input$variable,input$y,"cluster")])
+  names(new.data) <- c(input$variable,input$y,"cluster")
+  if(input$plot_ind == "all"){
+    cluster.plot <- new.data
+  }
+  if(input$plot_ind != "all") {
+    cluster.plot <- new.data %>%
+      dplyr::filter(cluster %in% as.numeric(input$plot_ind))
+  }
+  cluster.plot$cluster <- as.factor(cluster.plot$cluster)
+
+  ggpairs(cluster.plot, columns = 1:(ncol(cluster.plot)-1), ggplot2::aes(colour=cluster)) +
+    theme(axis.title=element_text(size=12,face="bold"),
+          panel.border      = element_blank(),
+          panel.background  = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          legend.text = element_text(hjust = 1),
+          legend.title = element_blank(),
+          legend.key.width = unit(.3, "cm"),
+          axis.line = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text.y = element_text( size = 10, color = "black"),
+          axis.text.x = element_text( size = 10, color = "black", angle = 90, hjust = 1))+
+    xlab("Variables")
+  })
+}
+
+
+shinyApp(ui=ui, server=server)

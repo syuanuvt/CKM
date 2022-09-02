@@ -1,0 +1,259 @@
+library(ggplot2)
+library(dplyr)
+library(hmeasure)
+library(foreign)
+library(MLmetrics)
+library(CKM)
+library(multichull)
+library(mclust)
+setwd("C:/Users/Shuai Yuan/Documents/LISS panel/2020")
+person_f <- read.spss(file = "2020.sav", to.data.frame = TRUE, use.value.labels = FALSE)
+person_f_use <- person_f[,c(1,13:62,73:108)]
+person_f_nona <- person_f_use[apply(person_f_use,1,function(x) sum(is.na(x)) == 0),]
+clean.data.value <- person_f_nona[,52:87]
+clean.data <- person_f_nona[,1:51]
+names(clean.data)[1:51] <- c("ID","e1", "a1_r", "c1", "n1", "o1", "e2_r", "a2", "c2_r", "n2_r", "o2_r",
+                             "e3", "a3_r", "c3", "n3", "o3", "e4_r", "a4", "c4_r", "n4_r", "o4_r",
+                             "e5", "a5_r", "c5", "n5", "o5", "e6_r", "a6", "c6_r", "n6", "o6_r",
+                             "e7", "a7_r", "c7", "n7", "o7", "e8_r", "a8", "c8_r", "n8", "o8",
+                             "e9", "a9", "c9", "n9", "o9", "e10_r", "a10", "c10", "n10", "o10")
+clean.data$a1 <- 6 - clean.data$a1_r
+clean.data$a3 <- 6 - clean.data$a3_r
+clean.data$a5 <- 6 - clean.data$a5_r
+clean.data$a7 <- 6 - clean.data$a7_r
+clean.data$e2 <- 6 - clean.data$e2_r
+clean.data$e4 <- 6 - clean.data$e4_r
+clean.data$e6 <- 6 - clean.data$e6_r
+clean.data$e8 <- 6 - clean.data$e8_r
+clean.data$e10 <- 6 - clean.data$e10_r
+clean.data$c2 <- 6 - clean.data$c2_r
+clean.data$c4 <- 6 - clean.data$c4_r
+clean.data$c6 <- 6 - clean.data$c6_r
+clean.data$c8 <- 6 - clean.data$c8_r
+clean.data$n2 <- 6 - clean.data$n2_r
+clean.data$n4 <- 6 - clean.data$n4_r
+clean.data$o2 <- 6 - clean.data$o2_r
+clean.data$o4 <- 6 - clean.data$o4_r
+clean.data$o6 <- 6 - clean.data$o6_r
+big.five <- clean.data[,c(1,2,4:6,8,12,14:16,18,22,
+                          24:26,28,30,32,34:36,38,40:46,48:69)]
+big.five.norm <- scale(big.five[2:51])
+value.norm <- scale(clean.data.value)  
+big.five.new <- cbind(big.five[,1],big.five.norm[,1:50])
+all.new <- cbind(big.five.new, value.norm)
+########### analysis with a fixed number of clusters (4)
+set.seed(970912)
+a_2020_four <- CKMSelVar_new(as.matrix(all.new[1:2500,2:87]), 4, search = "all", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+a_2020_four$signaling.set
+
+a_2020_three <- CKMSelVar_new(as.matrix(all.new[1:2500,2:87]), 3, search = "all", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+a_2020_three$signaling.set
+
+set.seed(970912)
+c_2020_four <- CardKMeans(as.matrix(all.new[1:2500,2:87]), 4, 1, 20)
+#a_2019_all <- CKMSelVar_new(as.matrix(big.five.new[,2:51]), 4, search = "all", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+#a_2019_all$signaling.set
+########### the number of clusters is determined in a data-driven way
+b_2020_part <- CKMSelAll_new(as.matrix(all.new[1:2500,2:87]), minclust = 2, maxclust=8)
+b_2020_part$opt.cluster
+b_2020_part$stable.set
+
+######### also four cluster
+plot(1:7,b_2020_part$b$Tab[,3])
+#CHull(cbind(1:7,b$b$Tab[,3]),"higher")
+##########################################################
+############## plot the results of CKM ####################
+##########################################################
+ckm.object <- c_2020_four
+n.noisevar <- 1
+signaling.set <- ckm.object$variables
+cluster.assign <- ckm.object$cluster.assign
+n.cluster <- 4
+dataset <- as.matrix(all.new[1:2500,2:87])
+#big.five.useful <- big.five.new[,2:51]
+var.ind <- c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5,3,1,2,3,4,5,
+             3,4,1,5,2,3,4,5,2,3,4,5,5,5,5,1,1,1,1,1,
+             2,2,2,2,3,3,4,4,4,rep(6,36))
+all.useful <- all.new[1:2500,2:ncol(all.new)]
+new.data <- all.useful[, signaling.set]
+cluster.center <- matrix(nrow = n.cluster, ncol = length(signaling.set))
+colnames(cluster.center) <- as.character(signaling.set)
+
+for (i in 1:n.cluster){
+  if(sum(cluster.assign == i) != 1){
+    cluster.center[i,] <- apply(all.useful[cluster.assign == i,signaling.set], 2, mean)
+  }
+  if(sum(cluster.assign == i) == 1){
+    cluster.center[i,] <- all.useful[cluster.assign == i,signaling.set]
+  }
+}
+
+cluster.plot <- as.data.frame(t(cluster.center))
+for (i in 1:n.cluster){
+  colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+}
+
+cluster.plot$group <- as.factor(var.ind[signaling.set])
+levels(cluster.plot$group) <- c("E","C","N","O","A","Value")
+a <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster, groupColumn = "group", scale = "globalminmax",
+                   showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3)+
+  scale_color_viridis(discrete = TRUE)+
+  ylab("Centroids") +
+  xlab("Clusters")+ 
+  theme(text = element_text(size = 13, family = "serif"))
+ggplot_build(a)$data
+##############################
+#### mclust
+mclust.result <- Mclust(big.five.new[1:1000,2:51], G = 4)
+classError(mclust.result$classification, a$cluster.assign)
+#### kmeans
+kmeans.result <- kmeans(big.five.new[1:1000,2:51], 4)
+classError(kmeans.result$cluster, a$cluster.assign)
+apply(abs(cluster.center),2,mean)
+kmeans.result.stable <- kmeans(big.five.useful[1:1000,signaling.set],4)
+classError(kmeans.result.stable$cluster, a$cluster.assign)
+#################
+big.five.useful <- big.five.new[,2:51]
+new.data <- big.five.useful[1:1000, ]
+cluster.center <- matrix(nrow = n.cluster, ncol = length(2:51))
+colnames(cluster.center) <- as.character(2:51)
+cluster.assign <- kmeans.result$cluster
+
+for (i in 1:n.cluster){
+  if(sum(cluster.assign == i) != 1){
+    cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+  }
+  if(sum(cluster.assign == i) == 1){
+    cluster.center[i,] <- new.data[cluster.assign == i,]
+  }
+}
+
+cluster.plot <- as.data.frame(t(cluster.center))
+for (i in 1:n.cluster){
+  colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+}
+
+cluster.plot$group <- as.factor(var.ind)
+levels(cluster.plot$group) <- c("E","C","N","O","A")
+b <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster, groupColumn = "group", scale = "globalminmax",
+                   showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3)+
+  scale_color_viridis(discrete = TRUE)+
+  ylab("Centroids") +
+  xlab("Clusters")+ 
+  theme(text = element_text(size = 13, family = "serif"))
+################################
+#### noise set
+noise.set <- setdiff(1:86, signaling.set)
+#########
+noise.set <- 23
+new.data <- all.useful[1:2500, noise.set]
+cluster.center <- matrix(nrow = n.cluster, ncol = length(noise.set))
+colnames(cluster.center) <- as.character(noise.set)
+
+#for (i in 1:n.cluster){
+#  if(sum(cluster.assign == i) != 1){
+#    cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+#  }
+#  if(sum(cluster.assign == i) == 1){
+#    cluster.center[i,] <- new.data[cluster.assign == i,]
+#  }
+#}
+
+for (i in 1:n.cluster){
+  if(sum(cluster.assign == i) != 1){
+    cluster.center[i,] <- mean(new.data[cluster.assign == i])
+  }
+  if(sum(cluster.assign == i) == 1){
+    cluster.center[i,] <- new.data[cluster.assign == i]
+  }
+}
+
+cluster.plot <- as.data.frame(t(cluster.center))
+for (i in 1:n.cluster){
+  colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+}
+cluster.plot$group <- as.factor(var.ind[noise.set])
+levels(cluster.plot$group) <- c("O")
+b <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster, groupColumn = "group", scale = "globalminmax",
+                   showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3)+
+  #scale_color_viridis(discrete = TRUE)+
+  ylab("Centroids") +
+  xlab("Clusters") + 
+  scale_color_manual(values=c('#25848EFF')) +
+  ylim(-1,.5) +
+  theme(text = element_text(size = 13, family = "serif"))
+##########################################################
+############## validation with theories ##################
+##########################################################
+setwd("C:/Users/Shuai Yuan/Documents/LISS panel/background")
+back_2020 <- read.spss(file = "2020back.sav", to.data.frame = TRUE, use.value.labels = FALSE)
+assign <- as.data.frame(cbind(big.five.new[1:1000,1], a$cluster.assign))
+names(assign) <- c("ID", "index")
+back_ne <- back_2020[,c(1,4,8)]
+names(back_ne) <- c("ID","gender","age")
+assign_bg <- left_join(assign, back_ne, by = "ID")
+assign_bg$index <- as.factor(assign_bg$index)
+k <- assign_bg %>%
+  dplyr::group_by(index) %>%
+  dplyr::summarise(gender = mean(gender, na.rm =TRUE), age = mean(age, na.rm =TRUE))
+write.csv(k,"k.csv")
+##########################################################
+####### validation with down-sampling of rows ##############
+##########################################################
+n.rep <- 20
+n.cluster <- 4
+ce.value.row <- rep(NA,n.rep)
+var.list.row <- list()
+set.seed(970912)
+for(i in 1:n.rep){
+  new.i <- sample(1:2500,1250)
+  index.i <- a_2020_four$cluster.assign[new.i]
+  new.data <- all.new[new.i,2:ncol(all.new)]
+  results.i <- CKMSelNo(new.data, n.cluster, 3)
+  ce.value.row[i] <- classError(index.i, results.i$cluster.assign)[[2]]
+  var.list.row[[i]] <- results.i$signaling.set
+}
+noise.set.record <- matrix(nrow = 20, ncol = 16)
+for(i in 1:n.rep){
+  var.noise <- setdiff(1:86, var.list.row[[i]])
+  noise.set.record[i,1] <- length(var.noise)
+  noise.set.record[i,2:(1+length(var.noise))] <- var.noise
+}
+write(noise.set.record, file = "noise.csv")
+#####################################################
+####### validation with down-sampling of columns ##############
+##########################################################
+n.rep <- 5
+n.var <- 40
+ce.value.col <- rep(NA,n.rep)
+var.list.col <- list()
+for(i in 1:n.rep){
+  new.i <- sample(2:51,n.var)
+  new.big.five <- big.five.new[1:1000,new.i]
+  results.i <- CKMSelVar_new(as.matrix(new.big.five), 4, search = "all", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+  ce.value.col[i] <- classError(a$cluster.assign, results.i$cluster.assign)[[2]]
+  var.list.col[[i]] <- results.i$signaling.set
+}
+##########################################################
+############## cross-validation ##################
+##########################################################
+setwd("C:/Users/Shuai Yuan/Documents/LISS panel/2019")
+person_f <- read.spss(file = "2019.sav", to.data.frame = TRUE, use.value.labels = FALSE)
+person_f_use <- person_f[,c(1,13:62)]
+########### analysis with a fixed number of clusters (4)
+a_2019_part <- CKMSelVar_new(as.matrix(big.five.new[1:1000,2:51]), 4, search = "all", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+a_2019_part$signaling.set
+a_2019_all <- CKMSelVar_new(as.matrix(big.five.new[,2:51]), 4, search = "all", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+a_2019_all$signaling.set
+########### the number of clusters is determined in a data-driven way
+b_2019_part <- CKMSelAll_new(as.matrix(big.five.new[1:1000,2:51]), minclust = 2, maxclust=8)
+b_2019_part$opt.cluster
+b_2019_part$stable.set
+######### also four cluster
+plot(1:7,b$b$Tab[,3])
+#################################
+b_2019_all <- CKMSelAll_new(as.matrix(big.five.new[1:1000,2:51]), minclust = 2, maxclust=8)
+b_2019_all$opt.cluster
+b_2019_all$stable.set
+######### also four cluster
+plot(1:7,b$b$Tab[,3])

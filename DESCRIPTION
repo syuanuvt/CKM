@@ -1,0 +1,17 @@
+Package: CKM
+Type: Package
+Title: Cardinality KM - simultaneous clustering and variable selection
+Version: 0.1.0
+Author: Shuai Yuan
+Maintainer: Shuai Yuan <s.yuan@tilburguniversity.edu>
+Description: The package implements Cardinality KMeans algorithm, an efficient and accurate method to perform simultaneous clustering and variable selection. The package includes functions to automatically determine the number of clusters and signaling variables, while offering great flexibility for users to pre-determine one or both of the parameters. A plotting function is also included to visualize the results of CKM  
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.0.0
+Depends: 
+    RSpectra,
+    cluster,
+    GGally,
+    viridis,
+    multichull

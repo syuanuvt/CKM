@@ -1,0 +1,1300 @@
+### Shiny app
+## traineeship 
+## Jaime Hermsdorf (621472/2008794)
+
+#download packages
+rm(list = ls())
+library("shiny")
+library("ggplot2")
+library("colourpicker")
+library("ggfortify")
+library("tsne")
+library("shinythemes")
+library("viridis")
+library("dplyr")
+library("GGally")
+
+#download dataset
+load("~/Desktop/traineeship 2/Shiny App/dataset_large.RData")
+
+
+ui <- navbarPage("Cluster data", collapsible = TRUE, inverse = TRUE, theme = shinytheme("spacelab"),
+                 #### upload your dataset
+                 tabPanel("Upload dataset",
+                          titlePanel("Upload dataset"),
+                          fluidRow(
+                            column(4,ofsett=0,
+                                   fileInput(inputId="file", label = "Upload the dataset")
+                            ))),
+                 #### options for distribution
+                 tabPanel("Distribution",
+                          titlePanel("Distribution of the data"),
+                          fluidRow(
+                            column(4,ofsett=0,
+                                   varSelectInput(inputId="variable_dist", label="Variable:", dataset),
+                                   textInput(inputId="title_dist", label="Title of the distribution:", placeholder="Distribution of the variable"),
+                                   textInput(inputId="title_x_dist", label="Title of the X-axis:", placeholder="Name of the variable"),
+                                   textInput(inputId="title_y_dist", label="Title of the Y-axis:", placeholder="Number of observations"),
+                                   checkboxGroupInput(inputId="sample_dist", label = "Select the sample:", choices = list("cluster 1", "cluster 2", "cluster 3", "entire sample"), selected = "entire sample"),
+                                   radioButtons(inputId="show_cluster_dist", label = "Show the different clusters:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+                                   radioButtons(inputId="file_type_dist", label = "Select the file type:", choices = list("png", "pdf"))
+                            ),
+                            column(8,
+                                   textOutput("title_dist"),
+                                   tabPanel("plot", plotOutput("plot_dist")),
+                                   downloadButton('download_dist', 'Download the distribution')
+                            )
+                          ),
+                          fluidRow(
+                            column(12,
+                                   conditionalPanel(condition = "input.show_cluster_dist == 'yes'",
+                                                    fluidRow(
+                                                      column(12,
+                                                             textInput(inputId="title_legend", label="Title of the legend:", placeholder="Clusters:")
+                                                      )
+                                                    ),
+                                                    fluidRow(
+                                                      column(3, offset=0,
+                                                             textInput(inputId="cluster1_name", label="Name of cluster 1:", placeholder="Cluster 1"),
+                                                             colourInput(inputId="cluster1_color", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+                                                      column(3,
+                                                             textInput(inputId="cluster2_name", label="Name of cluster 2:", placeholder="Cluster 2"),
+                                                             colourInput(inputId="cluster2_color", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+                                                      column(3,
+                                                             textInput(inputId="cluster3_name", label="Name of cluster 3:", placeholder="Cluster 3"),
+                                                             colourInput(inputId="cluster3_color", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE)),
+                                                    )
+                                   )
+                            )
+                          )       
+                 ),
+                 #### options for scatterplot
+                 tabPanel("Scatterplot",
+                          titlePanel("Scatterplot of the data"),
+                          fluidRow(
+                            column(4,
+                                   textInput(inputId="title_scat", label="Title of the scatterplot:", placeholder="Names of the two variables"),
+                                   varSelectInput(inputId="xvar_scat", label="Variable X-axis:", dataset),
+                                   textInput(inputId="xaxis_scat", label="Title of the X-axis:", placeholder="Name of variable X"),
+                                   varSelectInput(inputId="yvar_scat", label="Variable Y-axis:", dataset),
+                                   textInput(inputId="yaxis_scat", label="Title of the Y-axis:", placeholder="Name of variable Y"),
+                                   radioButtons(inputId="show_cluster_scat", label = "Show the different clusters:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+                                   radioButtons(inputId="file_type_scat", label = "Select the file type:", choices=list("png", "pdf"))),
+                            column(8,
+                                   plotOutput("plot_scat"),
+                                   textOutput("title_scat"),
+                                   downloadButton('download_scat', 'Download the scatterplot'))
+                          ),
+                          fluidRow(
+                            column(12,
+                                   conditionalPanel(condition = "input.show_cluster_scat == 'yes'",
+                                                    fluidRow(
+                                                      column(12,
+                                                             textInput(inputId="title_legend_scat", label="Title of the legend:", placeholder="Clusters:")
+                                                      )
+                                                    ),
+                                                    fluidRow(
+                                                      column(3, offset=0,
+                                                             textInput(inputId="cluster1_name_scat", label="Name of cluster 1:", placeholder="Cluster 1"),
+                                                             colourInput(inputId="cluster1_color_scat", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+                                                      column(3,
+                                                             textInput(inputId="cluster2_name_scat", label="Name of cluster 2:", placeholder="Cluster 2"),
+                                                             colourInput(inputId="cluster2_color_scat", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+                                                      column(3,
+                                                             textInput(inputId="cluster3_name_scat", label="Name of cluster 3:", placeholder="Cluster 3"),
+                                                             colourInput(inputId="cluster3_color_scat", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE))
+                                                    )
+                                   )
+                            )
+                          )
+                 ),
+                 #### options for plotcoord
+                 tabPanel("Plotcoord",
+                          titlePanel("Plotcoord of the data"),
+                          fluidRow(
+                            column(4,ofsett=0,
+                                   textInput(inputId="title_coord", label="Title of the plotcoord:", placeholder="Plotcoord of the data"),
+                                   radioButtons(inputId="coord_type", label = "Centroids or individual responses:", choiceNames = c("Centroids", "Individual responses"), choiceValues = c("centroids", "responses")),
+                                   conditionalPanel(
+                                     condition = "input.coord_type == 'centroids'",
+                                     radioButtons(inputId="var_name_coord", label = "Show the variable names:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+                                     textInput(inputId="title_x_axis_centroids", label="Title of the X-axis:", placeholder="Clusters"),
+                                     textInput(inputId="title_y_axis_centroids", label="Title of the Y-axis:", placeholder="Centroids")
+                                   ),
+                                   conditionalPanel(
+                                     condition="input.coord_type == 'responses'",
+                                     checkboxGroupInput(inputId="plot_ind_coord", label = "Show the following cluster:", choiceNames = c("Cluster 1", "Cluster 2", "Cluster 3", "All"), choiceValues = c("cluster 1", "cluster 2", "cluster 3", "entire sample"), selected = "entire sample"),
+                                     textInput(inputId="title_x_axis_responses", label="Title of the X-axis:", placeholder="Variables"),
+                                     textInput(inputId="title_y_axis_responses", label="Title of the Y-axis:", placeholder="Responses")
+                                     
+                                   ),
+                                   radioButtons(inputId="file_type_coord", label = "Select the file type:", choices = list("png", "pdf"))
+                            ),
+                            column(8,
+                                   textOutput("title_coord"),
+                                   plotOutput("plot_coord"),
+                                   downloadButton('download_coord', 'Download the plotcoord')
+                            )
+                          ),
+                          fluidRow(
+                            column(12, offset=0,
+                                   conditionalPanel(
+                                     condition="input.coord_type == 'responses'",
+                                     fluidRow(
+                                       column(12, offset=0,
+                                              textInput(inputId="title_legend_coord", label="Title of the legend:", placeholder="Clusters:")
+                                       )
+                                     ),
+                                     fluidRow(
+                                       column(3, offset=0,
+                                              textInput(inputId="cluster1_name_coord", label="Name of cluster 1:", placeholder="Cluster 1"),
+                                              colourInput(inputId="cluster1_color_coord", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+                                       column(3,
+                                              textInput(inputId="cluster2_name_coord", label="Name of cluster 2:", placeholder="Cluster 2"),
+                                              colourInput(inputId="cluster2_color_coord", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+                                       column(3,
+                                              textInput(inputId="cluster3_name_coord", label="Name of cluster 3:", placeholder="Cluster 3"),
+                                              colourInput(inputId="cluster3_color_coord", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE)),
+                                     )
+                                   )
+                            )
+                          )
+                 ),
+                 #### options for heatmap
+                 tabPanel ("Heatmap",
+                           titlePanel("Heatmap of the data"),
+                           fluidRow(
+                             column(4,ofsett=0,
+                                    textInput(inputId="title_heat", label="Title of the heatmap:", placeholder="Heatmap of the data"),
+                                    textInput(inputId="title_x_axis_heat", label="Title of the X-axis:", placeholder="Cluster"),
+                                    textInput(inputId="title_y_axis_heat", label="Title of the Y-axis:", placeholder="Variables"),
+                                    radioButtons(inputId="file_type_heat", label = "Select the file type:", choices = list("png", "pdf"))
+                             ),
+                             column(8,
+                                    textOutput("title_heat"),
+                                    plotOutput("plot_heat"),
+                                    downloadButton('download_heat', 'Download the heatmap')
+                             )
+                           )
+                 ),
+                 #### options for LD
+                 tabPanel("Lower-dimensional",
+                          titlePanel("Lower-dimensional summarization of the data"),
+                          fluidRow(
+                            column(4,ofsett=0,
+                                   textInput(inputId="title_ld", label="Title of the lower-dimensional summarization:", placeholder="Lower-dimensional summarization of the clusters"),
+                                   radioButtons(inputId="summarization_type_ld", label = "Dimension reduction method:", choiceNames = c("Principal component analysis", "t-distributed stochastic neighbor embedding"), choiceValues = c("PCA", "TSNE")),
+                                   conditionalPanel(condition = "input.summarization_type_ld == 'TSNE'",
+                                                    radioButtons(inputId="case_names_ld", label = "Show the case names:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no"))),
+                                   radioButtons(inputId="show_cluster_ld", label = "Show the different clusters:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+                                   radioButtons(inputId="file_type_ld", label = "Select the file type:", choices = list("png", "pdf"))
+                            ),
+                            column(8,
+                                   textOutput("title_ld"),
+                                   plotOutput("plot_ld"),
+                                   downloadButton('download_ld', 'Download the lower-dimensional summarization')
+                            )
+                          ),
+                          fluidRow(
+                            column(12,
+                                   conditionalPanel(condition = "input.show_cluster_ld == 'yes'",
+                                                    fluidRow(
+                                                      column(12,
+                                                             textInput(inputId="title_legend_ld", label="Title of the legend:", placeholder="Clusters:")
+                                                      )
+                                                    ),
+                                                    fluidRow(
+                                                      column(3, offset=0,
+                                                             textInput(inputId="cluster1_name_ld", label="Name of cluster 1:", placeholder="Cluster 1"),
+                                                             colourInput(inputId="cluster1_color_ld", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+                                                      column(3,
+                                                             textInput(inputId="cluster2_name_ld", label="Name of cluster 2:", placeholder="Cluster 2"),
+                                                             colourInput(inputId="cluster2_color_ld", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+                                                      column(3,
+                                                             textInput(inputId="cluster3_name_ld", label="Name of cluster 3:", placeholder="Cluster 3"),
+                                                             colourInput(inputId="cluster3_color_ld", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE)),
+                                                    )
+                                   )
+                            )
+                          )      
+                 ),
+                 #### options for uni-var
+                 tabPanel ("Univariate distribution",
+                           titlePanel("Univariate distribution of the data"),
+                           fluidRow(
+                             column(4,
+                                    textInput(inputId="title_uni", label="Title of the distribution:", placeholder="Univeriate distribution of the variable"),
+                                    selectInput(inputId="variable_uni", label="Variable X-axis:", choices = names(dataset)),
+                                    textInput(inputId="title_x_axis_uni", label="Title of the X-axis:", placeholder="Variables"),
+                                    textInput(inputId="title_y_axis_uni", label="Title of the Y-axis:", placeholder="Responses"),
+                                    checkboxGroupInput(inputId="sample_uni", label = "Select the sample:", choices = list("cluster 1", "cluster 2", "cluster 3", "entire sample"), selected = "entire sample"),
+                                    radioButtons(inputId="show_cluster_uni", label = "Show the different clusters:", choiceNames = c("Yes", "No"), choiceValues = c("yes", "no")),
+                                    radioButtons(inputId="file_type_uni", label = "Select the file type:", choices = list("png", "pdf"))
+                             ),
+                             column(8,
+                                    textOutput("title_uni"),
+                                    plotOutput("plot_uni"),
+                                    downloadButton('download_uni', 'Download the univariate distribution')
+                             )
+                           ),
+                           fluidRow(
+                             column(12,
+                                    conditionalPanel(condition = "input.show_cluster_uni == 'yes'",
+                                                     fluidRow(
+                                                       column(12,
+                                                              textInput(inputId="title_legend_uni", label="Title of the legend:", placeholder="Clusters:")
+                                                       )
+                                                     ),
+                                                     fluidRow(
+                                                       column(3, offset=0,
+                                                              textInput(inputId="cluster1_name_uni", label="Name of cluster 1:", placeholder="Cluster 1"),
+                                                              colourInput(inputId="cluster1_color_uni", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+                                                       column(3,
+                                                              textInput(inputId="cluster2_name_uni", label="Name of cluster 2:", placeholder="Cluster 2"),
+                                                              colourInput(inputId="cluster2_color_uni", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+                                                       column(3,
+                                                              textInput(inputId="cluster3_name_uni", label="Name of cluster 3:", placeholder="Cluster 3"),
+                                                              colourInput(inputId="cluster3_color_uni", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE)),
+                                                     )
+                                    )
+                             )
+                           )         
+                 ),
+                 #### options for bi-var
+                 tabPanel("Bivariate distribution",
+                          titlePanel("Bivariate distribution of the data"),
+                          fluidRow(
+                            column(4,
+                                   textInput(inputId="title_bi", label="Title of the bivariate distribution:", placeholder="Bivariate distribution of the variables"),
+                                   selectInput(inputId="variable_1_bi", label="Variable 1:", choices = names(dataset), selected = "a1"),
+                                   selectInput(inputId="variable_2_bi", label="Variable 2:", choices = names(dataset), selected = "a2"),
+                                   textInput(inputId="title_xaxis_bi", label="Title of the X-axis:", placeholder="Variables"),
+                                   checkboxGroupInput(inputId="plot_ind_bi", label = "Show the following cluster:", choiceNames = c("Cluster 1", "Cluster 2", "Cluster 3", "All"), choiceValues = c("cluster 1", "cluster 2", "cluster 3", "entire sample"), selected = "entire sample"),
+                                   radioButtons(inputId="file_type_bi", label = "Select the file type:", choices=c("png", "pdf"))),
+                            column(8,
+                                   plotOutput("plot_bi"),
+                                   textOutput("title_bi"),
+                                   downloadButton('download_bi', 'Download the bivariate distribution'))
+                          ),
+                          fluidRow(
+                            column(3, offset=0,
+                                   textInput(inputId="cluster1_name_bi", label="Name of cluster 1:", placeholder="Cluster 1"),
+                                   colourInput(inputId="cluster1_color_bi", label="Color of cluster 1:", value="lightpink", showColour="background", closeOnClick=TRUE)),
+                            column(3,
+                                   textInput(inputId="cluster2_name_bi", label="Name of cluster 2:", placeholder="Cluster 2"),
+                                   colourInput(inputId="cluster2_color_bi", label="Color of cluster 2:", value="steelblue", showColour="background", closeOnClick=TRUE)),
+                            column(3,
+                                   textInput(inputId="cluster3_name_bi", label="Name of cluster 3:", placeholder="Cluster 3"),
+                                   colourInput(inputId="cluster3_color_bi", label="Color of cluster 3:", value="palegreen1", showColour="background", closeOnClick=TRUE)),
+                          )       
+                 )
+)
+
+server <- function(input, output){
+  #### creates the distribution plot
+  output$plot_dist <- renderPlot({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]
+    sample_selected_dist <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$sample_dist)) {
+        return(dataset)
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$sample_dist)) {
+        return(dataset[dataset$cluster==1 | dataset$cluster==2,])
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$sample_dist)) {
+        return(dataset[dataset$cluster==1 | dataset$cluster==3,])
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$sample_dist)) {
+        return(dataset[dataset$cluster==2 | dataset$cluster==3,])
+      }
+      else if ("cluster 1" %in% input$sample_dist) {
+        return(dataset[dataset$cluster==1,])
+      }
+      else if ("cluster 2" %in% input$sample_dist) {
+        return(dataset[dataset$cluster==2,])
+      }
+      else if ("cluster 3" %in% input$sample_dist) {
+        return(dataset[dataset$cluster==3,])
+      }
+      else if ("entire sample" %in% input$sample_dist) {
+        return(dataset)
+      }
+      else {
+        return(dataset)
+      }
+    )
+    legend_label_dist <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name))  
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_name, "3" = input$cluster3_name))   
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$sample_dist)) {
+        return(c("2" = input$cluster2_name, "3" = input$cluster3_name))  
+      }
+      else if ("cluster 1" %in% input$sample_dist) {
+        return(c("1" = input$cluster1_name))  
+      }
+      else if ("cluster 2" %in% input$sample_dist) {
+        return(c("2" = input$cluster2_name))   
+      }
+      else if ("cluster 3" %in% input$sample_dist) {
+        return(c("3" = input$cluster3_name))  
+      }
+      else if ("entire sample" %in% input$sample_dist) {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+      else {
+        return(c("1" = input$cluster1_name, "2" = input$cluster2_name, "3" = input$cluster3_name))
+      }
+    )
+    legend_color_dist <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color))  
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$sample_dist)) {
+        return(c("1" = input$cluster1_color, "3" = input$cluster3_color))   
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$sample_dist)) {
+        return(c("2" = input$cluster2_color, "3" = input$cluster3_color))  
+      }
+      else if ("cluster 1" %in% input$sample_dist) {
+        return(c("1" = input$cluster1_color))  
+      }
+      else if ("cluster 2" %in% input$sample_dist) {
+        return(c("2" = input$cluster2_color))   
+      }
+      else if ("cluster 3" %in% input$sample_dist) {
+        return(c("3" = input$cluster3_color))  
+      }
+      else if ("entire sample" %in% input$sample_dist) {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+      else {
+        return(c("1" = input$cluster1_color, "2" = input$cluster2_color, "3" = input$cluster3_color))
+      }
+    )
+    if(input$show_cluster_dist == "yes") {
+      ggplot(sample_selected_dist(), aes(!!input$variable_dist)) +
+        geom_histogram(aes(colour=as.factor(cluster), fill=as.factor(cluster)),alpha=0.5) +
+        scale_colour_manual(label=legend_label_dist(), values=legend_color_dist())+
+        scale_fill_manual(label=legend_label_dist(), values=legend_color_dist())+
+        labs(title= input$title_dist, x=input$title_x_dist, y=input$title_y_dist, colour=input$title_legend, fill=input$title_legend) +
+        theme(title = element_text(size = 30),
+              axis.title = element_text(size=20),
+              axis.text = element_text(size = 16),
+              legend.text = element_text(size=16))
+    }
+    else {
+      ggplot(sample_selected_dist(), aes(!!input$variable_dist)) +
+        geom_histogram(alpha=0.5) +
+        labs(title= input$title_dist, x=input$title_x_dist, y=input$title_y_dist) +
+        theme(title = element_text(size = 30),
+              axis.title = element_text(size=20),
+              axis.text = element_text(size = 16))
+    }
+  })
+  output$download_dist <- downloadHandler(
+    filename = function(){
+      paste("Distribution", input$title_dist, input$file_type_dist, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+  #### creates the scatterplot
+  output$plot_scat <- renderPlot({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]
+    if(input$show_cluster_scat == "yes") {
+      ggplot(dataset, aes(x = !!input$xvar_scat, y = !!input$yvar_scat)) + 
+        geom_point(aes(colour=as.factor(cluster)), size=6) +
+        scale_colour_manual(labels = c(input$cluster1_name_scat, input$cluster2_name_scat, input$cluster3_name_scat), values= c(input$cluster1_color_scat, input$cluster2_color_scat, input$cluster3_color_scat)) +
+        labs(title= input$title_scat, colour=input$title_legend_scat, x=input$xaxis_scat, y=input$yaxis_scat) +
+        theme(title = element_text(size = 30), 
+              axis.title = element_text(size=20),
+              axis.text = element_text(size = 16),
+              legend.text = element_text(size = 16))}
+    else {
+      ggplot(dataset, aes(x = !!input$xvar_scat, y = !!input$yvar_scat)) + 
+        geom_point(size=6) +
+        labs(title= input$title_scat, x=input$xaxis_scat, y=input$yaxis_scat) +
+        theme(title = element_text(size = 30), 
+              axis.title = element_text(size=20),
+              axis.text = element_text(size = 16))}
+  })
+  output$download_scat <- downloadHandler(
+    filename = function(){
+      paste("Scatterplot", input$title_scat, input$file_type_scat, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+  #### creates the plotcoord
+  output$plot_coord <- renderPlot({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- length(dataset)-1
+    n.obs <- nrow(dataset)
+    if (input$coord_type == "centroids") {
+      cluster.assign <- dataset$cluster
+      new.data <- as.data.frame(dataset[,-ncol(dataset)])
+      cluster.center <- matrix(nrow = n.cluster, ncol = n.sig)
+      colnames(cluster.center) <- as.character(names(new.data))
+      for (i in 1:n.cluster){
+        if(sum(cluster.assign == i) != 1){
+          cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+        }
+        if(sum(cluster.assign == i) == 1){
+          cluster.center[i,] <- new.data[cluster.assign == i,]
+        }
+      }
+      cluster.plot <- as.data.frame(t(cluster.center))
+      for (i in 1:n.cluster){
+        colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+      }
+      if(input$var_name_coord == "yes"){
+        cluster.plot$name <- colnames(new.data)
+        a <- GGally::ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+                                showPoints = TRUE, title = input$title_coord, alphaLines = .3, mapping = aes(label = name))+
+          scale_color_viridis(discrete = TRUE)+
+          ylab(input$title_y_axis_centroids) +
+          xlab(input$title_x_axis_centroids) +
+          theme(axis.title = element_text(size=20),
+                title = element_text(size = 30),
+                panel.border      = element_blank(),
+                panel.background  = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                legend.text = element_text(hjust = 1),
+                legend.title = element_blank(),
+                legend.key.width = unit(.3, "cm"),
+                axis.line = element_blank(),
+                axis.ticks = element_blank(),
+                axis.text.y = element_text( size = 16),
+                axis.text.x = element_text( size = 16)) +
+          guides(color = FALSE, size = FALSE)
+        new.data <- a$data[a$data$variable == a$data$variable[1], ]
+        new.data$name <- cluster.plot$name
+        a +
+          geom_text(aes(label = name),  data=new.data, color = 'gray15',size=4, hjust =1.5)
+      }
+      else {
+        GGally::ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+                           showPoints = TRUE, title = input$title_coord, alphaLines = .3)+
+          scale_color_viridis(discrete = TRUE)+
+          ylab(input$title_y_axis_centroids) +
+          xlab(input$title_x_axis_centroids) +
+          theme(axis.title= element_text(size=20),
+                title = element_text(size = 30),
+                panel.border      = element_blank(),
+                panel.background  = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                legend.text = element_text(hjust = 1),
+                legend.title = element_blank(),
+                legend.key.width = unit(.3, "cm"),
+                axis.line = element_blank(),
+                axis.ticks = element_blank(),
+                axis.text.y = element_text( size = 16),
+                axis.text.x = element_text( size = 16))
+      }
+    }
+    else if(input$coord_type == "responses"){
+      n.cluster <- length(unique(dataset$cluster))
+      n.sig <- length(dataset)-1
+      n.obs <- nrow(dataset)
+      dataset_r <- as.data.frame(dataset)
+      dataset_r$cluster <- as.factor(dataset$cluster)
+      dataset_r$name <- rownames(dataset)
+      cluster.plot_r <- reactive(
+        if(input$coord_type == "responses"){
+          if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 1", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 2", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$plot_ind_coord)) {
+            return(dataset_r)
+          }
+          else if (all(c("cluster 1", "cluster 2") %in% input$plot_ind_coord)) {
+            return(dataset_r[dataset_r$cluster==1 | dataset_r$cluster==2,])
+          }
+          else if (all(c("cluster 1", "cluster 3") %in% input$plot_ind_coord)) {
+            return(dataset_r[dataset_r$cluster==1 | dataset_r$cluster==3,])
+          }
+          else if (all(c("cluster 2", "cluster 3") %in% input$plot_ind_coord)) {
+            return(dataset_r[dataset_r$cluster==2 | dataset_r$cluster==3,])
+          }
+          else if ("cluster 1" %in% input$plot_ind_coord) {
+            return(dataset_r[dataset_r$cluster==1,])
+          }
+          else if ("cluster 2" %in% input$plot_ind_coord) {
+            return(dataset_r[dataset_r$cluster==2,])
+          }
+          else if ("cluster 3" %in% input$plot_ind_coord) {
+            return(dataset_r[dataset_r$cluster==3,])
+          }
+          else if ("entire sample" %in% input$plot_ind_coord) {
+            return(dataset_r)
+          }
+          else {
+            return(dataset_r)
+          }
+        }
+      )
+      legend_label <- reactive(
+        if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 1", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 2", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else if (all(c("cluster 1", "cluster 2") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord))  
+        }
+        else if (all(c("cluster 1", "cluster 3") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_name_coord, "3" = input$cluster3_name_coord))   
+        }
+        else if (all(c("cluster 2", "cluster 3") %in% input$plot_ind_coord)) {
+          return(c("2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))  
+        }
+        else if ("cluster 1" %in% input$plot_ind_coord) {
+          return(c("1" = input$cluster1_name_coord))  
+        }
+        else if ("cluster 2" %in% input$plot_ind_coord) {
+          return(c("2" = input$cluster2_name_coord))   
+        }
+        else if ("cluster 3" %in% input$plot_ind_coord) {
+          return(c("3" = input$cluster3_name_coord))  
+        }
+        else if ("entire sample" %in% input$plot_ind_coord) {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+        else {
+          return(c("1" = input$cluster1_name_coord, "2" = input$cluster2_name_coord, "3" = input$cluster3_name_coord))
+        }
+      )
+      legend_color <- reactive(
+        if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 1", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 2", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 3", "entire sample") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else if (all(c("cluster 1", "cluster 2") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord))  
+        }
+        else if (all(c("cluster 1", "cluster 3") %in% input$plot_ind_coord)) {
+          return(c("1" = input$cluster1_color_coord, "3" = input$cluster3_color_coord))   
+        }
+        else if (all(c("cluster 2", "cluster 3") %in% input$plot_ind_coord)) {
+          return(c("2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))  
+        }
+        else if ("cluster 1" %in% input$plot_ind_coord) {
+          return(c("1" = input$cluster1_color_coord))  
+        }
+        else if ("cluster 2" %in% input$plot_ind_coord) {
+          return(c("2" = input$cluster2_color_coord))   
+        }
+        else if ("cluster 3" %in% input$plot_ind_coord) {
+          return(c("3" = input$cluster3_color_coord))  
+        }
+        else if ("entire sample" %in% input$plot_ind_coord) {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+        else {
+          return(c("1" = input$cluster1_color_coord, "2" = input$cluster2_color_coord, "3" = input$cluster3_color_coord))
+        }
+      )
+      GGally::ggparcoord(cluster.plot_r(), columns = 1:n.sig, groupColumn = "cluster", scale = "globalminmax", 
+                         showPoints = TRUE, title = input$title_coord, alphaLines = .3, mapping = aes(label = name, colour=as.factor(cluster)))+
+        scale_color_viridis(discrete = TRUE)+
+        scale_colour_manual(label=legend_label(), values=legend_color()) +
+        labs(title= input$title_coord, x=input$title_x_axis_responses, y=input$title_y_axis_responses, colour=input$title_legend_coord) +
+        theme(axis.title = element_text(size=20),
+              title = element_text(size = 30),
+              panel.border      = element_blank(),
+              panel.background  = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.text = element_text(size=16),
+              legend.title = element_text(size=16),
+              axis.line = element_blank(),
+              axis.ticks = element_blank(),
+              axis.text.y = element_text(size = 10, color = "black"),
+              axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1)) +          
+        guides(size = FALSE)
+    }
+  })
+  output$download_coord <- downloadHandler(
+    filename = function(){
+      paste("PlotCoordn", input$title, input$file_type_coord, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+  #### creates the heatmap
+  output$plot_heat <- renderPlot({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- ncol(dataset)-1
+    n.obs <- nrow(dataset)
+    cluster.assign <- dataset$cluster
+    new.data <- as.data.frame(dataset[,-(n.sig+1)])
+    cluster.center <- matrix(nrow = n.cluster, ncol = n.sig)
+    colnames(cluster.center) <- as.character(names(new.data))
+    for (i in 1:n.cluster){
+      if(sum(cluster.assign == i) != 1){
+        cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+      }
+      if(sum(cluster.assign == i) == 1){
+        cluster.center[i,] <- new.data[cluster.assign == i,]
+      }
+    }
+    cluster.plot <- as.data.frame(t(cluster.center))
+    for (i in 1:n.cluster){
+      colnames(cluster.plot)[i] <- paste0("cluster ", i)
+    }
+    cluster.plot$variable <- colnames(new.data)
+    cluster.plot.new <- reshape(as.data.frame(cluster.plot),idvar="variable",varying=paste0("cluster ", seq(1, n.cluster)),
+                                timevar = "cluster", v.names = "value", direction="long")
+    levels(cluster.plot.new$cluster) <- paste0("cluster ", seq(1, n.cluster))
+    
+    ggplot(cluster.plot.new, aes(cluster, variable, fill= value)) +
+      geom_tile() +
+      scale_color_brewer(palette = "Set2")+
+      labs(title= input$title_heat, x=input$title_x_axis_heat, y=input$title_y_axis_heat) +
+      theme(axis.title = element_text(size=20),
+            title = element_text(size = 30),
+            panel.border      = element_blank(),
+            panel.background  = element_blank(),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            legend.text = element_text(size=16),
+            legend.title = element_text(size=16),
+            axis.line = element_blank(),
+            axis.ticks = element_blank(),
+            axis.text.y = element_text(size = 10, color = "black"),
+            axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1)) +
+      guides(color = FALSE, size = FALSE)
+  })
+  output$download_heat <- downloadHandler(
+    filename = function(){
+      paste("PlotCoordn", input$title_heat, input$file_type_heat, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+  #### creates the LD
+  output$plot_ld <- renderPlot({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- ncol(dataset)-1
+    n.obs <- nrow(dataset)
+    dataset$cluster <- as.factor(dataset$cluster)
+    cluster.assign <- dataset$cluster
+    new.data <- as.data.frame(dataset[,-(n.sig+1)])
+    if (input$summarization_type_ld == "PCA") {
+      if (input$show_cluster_ld == "yes") {
+        pc_data <- prcomp(new.data)
+        autoplot(pc_data, data = dataset, colour = "cluster", size=6) +
+          scale_colour_manual(labels = c(input$cluster1_name_ld, input$cluster2_name_ld, input$cluster3_name_ld), values= c(input$cluster1_color_ld, input$cluster2_color_ld, input$cluster3_color_ld)) +      
+          labs(title= input$title_ld, colour=input$title_legend_ld) +
+          theme(title = element_text(size = 30), 
+                axis.title = element_text(size=20),
+                axis.text = element_text(size = 16),
+                legend.text = element_text(size = 16))
+      }
+      else if (input$show_cluster_ld == "no") {
+        pc_data <- prcomp(new.data)
+        autoplot(pc_data, data = dataset, size=6) +
+          labs(title= input$title_ld) +
+          theme(title = element_text(size = 30), 
+                axis.title = element_text(size=20),
+                axis.text = element_text(size = 16))
+      }
+    }
+    else if (input$summarization_type_ld == "TSNE"){
+      perp <- floor((nrow(new.data)-1)/3)
+      tsne_data <- tsne(as.matrix(new.data), perplexity = perp)
+      tsne_integration <- as.data.frame(cbind(tsne_data, cluster.assign))
+      names(tsne_integration) <- c("Dim1", "Dim2", "cluster")
+      tsne_integration$cluster <- as.factor(as.character(tsne_integration$cluster))
+      if (input$show_cluster_ld == "yes") {
+        if (input$case_names_ld == "yes") {
+          ggplot(tsne_integration, aes(x=Dim1, y=Dim2, color=cluster)) +
+            geom_point(size=1) +
+            scale_colour_manual(labels = c(input$cluster1_name_ld, input$cluster2_name_ld, input$cluster3_name_ld), values= c(input$cluster1_color_ld, input$cluster2_color_ld, input$cluster3_color_ld)) +        
+            labs(title= input$title_ld, colour=input$title_legend_ld) +
+            theme(title = element_text(size = 30), 
+                  axis.title = element_text(size=20),
+                  axis.text = element_text(size = 16),
+                  legend.text = element_text(size = 16))+
+            geom_text(
+              label=rownames(tsne_integration),
+              nudge_x = 0.25, nudge_y = 0.25,
+              check_overlap = T,
+              size=5)
+        }
+        else if (input$case_names_ld =="no") {
+          ggplot(tsne_integration, aes(x=Dim1, y=Dim2, color=cluster)) +
+            geom_point(size=6) +
+            scale_colour_manual(labels = c(input$cluster1_name_ld, input$cluster2_name_ld, input$cluster3_name_ld), values= c(input$cluster1_color_ld, input$cluster2_color_ld, input$cluster3_color_ld)) +        
+            labs(title= input$title_ld, colour=input$title_legend_ld) +
+            theme(title = element_text(size = 30), 
+                  axis.title = element_text(size=20),
+                  axis.text = element_text(size = 16),
+                  legend.text = element_text(size = 16))
+        }
+      }
+      else if (input$show_cluster_ld == "no") {
+        if (input$case_names_ld == "yes") {
+          ggplot(tsne_integration, aes(x=Dim1, y=Dim2)) +
+            geom_point(size=1) +
+            labs(title= input$title_ld) +
+            theme(title = element_text(size = 30), 
+                  axis.title = element_text(size=20),
+                  axis.text = element_text(size = 16)) +
+            geom_text(
+              label=rownames(tsne_integration),
+              nudge_x = 0.25, nudge_y = 0.25,
+              check_overlap = T,
+              size=5)   
+        }
+        else if (input$case_names_ld == "no") {
+          ggplot(tsne_integration, aes(x=Dim1, y=Dim2)) +
+            geom_point(size=6) +
+            labs(title= input$title_ld) +
+            theme(title = element_text(size = 30), 
+                  axis.title = element_text(size=20),
+                  axis.text = element_text(size = 16))
+        }
+      }
+    }
+  })
+  output$download_ld <- downloadHandler(
+    filename = function(){
+      paste("LD", input$title, input$file_type_ld, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+  #### creates the uni-var
+  output$plot_uni <- renderPlot ({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]
+    n.cluster <- length(unique(dataset$cluster))
+    n.sig <- ncol(dataset)-1
+    n.obs <- nrow(dataset)
+    new.data <- as.data.frame(dataset[,c(input$variable_uni,"cluster")])
+    cluster.plot <- new.data
+    cluster.plot$id <- 1:nrow(cluster.plot)
+    cluster.plot.new <- reshape(as.data.frame(cluster.plot),idvar=c("id","cluster"),varying=names(cluster.plot)[1:(ncol(cluster.plot)-2)],
+                                v.names = "variable", direction="long")
+    cluster.plot.new$time <- as.factor(cluster.plot.new$time)
+    levels(cluster.plot.new$time) <- names(cluster.plot)[1:(ncol(cluster.plot)-2)]
+    cluster.plot.new$cluster <- as.factor(cluster.plot.new$cluster)
+    sample_selected <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$sample_uni)) {
+        return(cluster.plot.new)
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$sample_uni)) {
+        return(cluster.plot.new[cluster.plot.new$cluster==1 | cluster.plot.new$cluster==2,])
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$sample_uni)) {
+        return(cluster.plot.new[cluster.plot.new$cluster==1 | cluster.plot.new$cluster==3,])
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$sample_uni)) {
+        return(cluster.plot.new[cluster.plot.new$cluster==2 | cluster.plot.new$cluster==3,])
+      }
+      else if ("cluster 1" %in% input$sample_uni) {
+        return(cluster.plot.new[cluster.plot.new$cluster==1,])
+      }
+      else if ("cluster 2" %in% input$sample_uni) {
+        return(cluster.plot.new[cluster.plot.new$cluster==2,])
+      }
+      else if ("cluster 3" %in% input$sample_uni) {
+        return(cluster.plot.new[cluster.plot.new$cluster==3,])
+      }
+      else if ("entire sample" %in% input$sample_uni) {
+        return(cluster.plot.new)
+      }
+      else {
+        return(cluster.plot.new)
+      }
+    )
+    legend_label <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni))  
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_name_uni, "3" = input$cluster3_name_uni))   
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$sample_uni)) {
+        return(c("2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))  
+      }
+      else if ("cluster 1" %in% input$sample_uni) {
+        return(c("1" = input$cluster1_name_uni))  
+      }
+      else if ("cluster 2" %in% input$sample_uni) {
+        return(c("2" = input$cluster2_name_uni))   
+      }
+      else if ("cluster 3" %in% input$sample_uni) {
+        return(c("3" = input$cluster3_name_uni))  
+      }
+      else if ("entire sample" %in% input$sample_uni) {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+      else {
+        return(c("1" = input$cluster1_name_uni, "2" = input$cluster2_name_uni, "3" = input$cluster3_name_uni))
+      }
+    )
+    legend_color <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni))  
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$sample_uni)) {
+        return(c("1" = input$cluster1_color_uni, "3" = input$cluster3_color_uni))   
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$sample_uni)) {
+        return(c("2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))  
+      }
+      else if ("cluster 1" %in% input$sample_uni) {
+        return(c("1" = input$cluster1_color_uni))  
+      }
+      else if ("cluster 2" %in% input$sample_uni) {
+        return(c("2" = input$cluster2_color_uni))   
+      }
+      else if ("cluster 3" %in% input$sample_uni) {
+        return(c("3" = input$cluster3_color_uni))  
+      }
+      else if ("entire sample" %in% input$sample_uni) {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+      else {
+        return(c("1" = input$cluster1_color_uni, "2" = input$cluster2_color_uni, "3" = input$cluster3_color_uni))
+      }
+    )
+    if (input$show_cluster_uni == 'yes') {
+      ggplot(sample_selected(), aes(y=variable)) +
+        geom_histogram(position = "identity", bins = nrow(sample_selected()), aes(colour=as.factor(sample_selected()$cluster), fill=as.factor(sample_selected()$cluster))) +
+        scale_colour_manual(label=legend_label(), values=legend_color())+
+        scale_fill_manual(label=legend_label(), values=legend_color())+
+        theme(title = element_text(size = 30),
+              axis.title = element_text(size=20),
+              axis.text = element_text(size = 16),
+              legend.text = element_text(size=16)) +
+        labs(title=input$title_uni, y=input$title_y_axis_uni, x=input$title_x_axis_uni, colour=input$title_legend_uni, fill=input$title_legend_uni) +
+        facet_wrap(~time)
+    }
+    else if (input$show_cluster_uni == 'no') {
+      ggplot(sample_selected(), aes(y=variable_uni)) +
+        geom_histogram(position = "identity", bins = nrow(cluster.plot))+
+        theme(title = element_text(size = 30),
+              axis.title = element_text(size=20),
+              axis.text = element_text(size = 16),
+              legend.text = element_text(size=16)) +
+        labs(title=input$title_uni, y=input$title_y_axis_uni, x=input$title_x_axis_uni) +
+        facet_wrap(~time)
+    }
+  })
+  output$download_uni <- downloadHandler(
+    filename = function(){
+      paste("UniVar", input$title_uni, input$file_type_uni, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+  #### creates the bi-var
+  output$plot_bi <- renderPlot ({
+    inFile <- input$file
+    file <- inFile$datapath
+    e = new.env()
+    name <- load(file, envir = e)
+    dataset <- e[[name]]   
+    dataset_r <- as.data.frame(dataset[,c(input$variable_1_bi,input$variable_2_bi,"cluster")])
+    names(dataset_r) <- c(input$variable_1_bi,input$variable_2_bi,"cluster")
+    cluster.plot <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$plot_ind_bi)) {
+        return(dataset_r)
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$plot_ind_bi)) {
+        return(dataset_r[dataset_r$cluster==1 | dataset_r$cluster==2,])
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$plot_ind_bi)) {
+        return(dataset_r[dataset_r$cluster==1 | dataset_r$cluster==3,])
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$plot_ind_bi)) {
+        return(dataset_r[dataset_r$cluster==2 | dataset_r$cluster==3,])
+      }
+      else if ("cluster 1" %in% input$plot_ind_bi) {
+        return(dataset_r[dataset_r$cluster==1,])
+      }
+      else if ("cluster 2" %in% input$plot_ind_bi) {
+        return(dataset_r[dataset_r$cluster==2,])
+      }
+      else if ("cluster 3" %in% input$plot_ind_bi) {
+        return(dataset_r[dataset_r$cluster==3,])
+      }
+      else if ("entire sample" %in% input$plot_ind_bi) {
+        return(dataset_r)
+      }
+      else {
+        return(dataset_r)
+      }
+    )
+    legend_label <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi))  
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_name_bi, "3" = input$cluster3_name_bi))   
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$plot_ind_bi)) {
+        return(c("2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))  
+      }
+      else if ("cluster 1" %in% input$plot_ind_bi) {
+        return(c("1" = input$cluster1_name_bi))  
+      }
+      else if ("cluster 2" %in% input$plot_ind_bi) {
+        return(c("2" = input$cluster2_name_bi))   
+      }
+      else if ("cluster 3" %in% input$plot_ind_bi) {
+        return(c("3" = input$cluster3_name_bi))  
+      }
+      else if ("entire sample" %in% input$plot_ind_bi) {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+      else {
+        return(c("1" = input$cluster1_name_bi, "2" = input$cluster2_name_bi, "3" = input$cluster3_name_bi))
+      }
+    )
+    legend_color <- reactive(
+      if (all(c("cluster 1", "cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 1", "cluster 2", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 1", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 2", "cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 1", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 2", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 3", "entire sample") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 1", "cluster 2", "cluster 3") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else if (all(c("cluster 1", "cluster 2") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi))  
+      }
+      else if (all(c("cluster 1", "cluster 3") %in% input$plot_ind_bi)) {
+        return(c("1" = input$cluster1_color_bi, "3" = input$cluster3_color_bi))   
+      }
+      else if (all(c("cluster 2", "cluster 3") %in% input$plot_ind_bi)) {
+        return(c("2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))  
+      }
+      else if ("cluster 1" %in% input$plot_ind_bi) {
+        return(c("1" = input$cluster1_color_bi))  
+      }
+      else if ("cluster 2" %in% input$plot_ind_bi) {
+        return(c("2" = input$cluster2_color_bi))   
+      }
+      else if ("cluster 3" %in% input$plot_ind_bi) {
+        return(c("3" = input$cluster3_color_bi))  
+      }
+      else if ("entire sample" %in% input$plot_ind_bi) {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+      else {
+        return(c("1" = input$cluster1_color_bi, "2" = input$cluster2_color_bi, "3" = input$cluster3_color_bi))
+      }
+    )
+    plot.matrix <-ggpairs(cluster.plot(), columns = 1:(ncol(cluster.plot())-1), labels = legend_label(), ggplot2::aes(colour=factor(cluster)))
+    for(i in 1:2) {
+      for(j in 1:2){
+        plot.matrix[i,j] <- plot.matrix[i,j] +
+          scale_fill_manual(label = legend_label(), values = legend_color()) +
+          scale_color_manual(values = legend_color())
+      }
+    }
+    plot.matrix +
+      theme(title = element_text(size = 30),
+            axis.title = element_text(size=20),
+            axis.text = element_text(size = 16),
+            legend.position = "right",
+            legend.text = element_text(size=20),
+            legend.title = element_text(size=16),
+            legend.key.width = unit(.3, "cm"))+
+      labs(title=input$title_bi, x=input$title_xaxis_bi, fill=legend_color(), colour=legend_color())
+  })
+  output$download_bi <- downloadHandler(
+    filename = function(){
+      paste("BiVar", input$title, input$file_type_bi, sep=".")},
+    content = function(file){
+      ggsave(file, plot = last_plot(), device = NULL, width=40, height=20, units="cm")}
+  )
+}
+
+shinyApp (ui=ui, server=server)

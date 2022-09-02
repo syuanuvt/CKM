@@ -1,0 +1,172 @@
+########################################
+## libraries
+#install.packages("mlVAR")
+#install.packages("imputeTS")
+library("tseries")
+library(mlVAR)
+library(qgraph)
+library(apaTables)
+library(dplyr)
+library(reshape2)
+library(imputeTS)
+library(bootnet)
+library(mice)
+########################################
+
+########################################
+## data pre-process
+setwd("C:/Users/u1275970/Documents/intensive data analysis/new")
+n <- 60
+n.var <- 8
+# proportion of missing data of each observation
+prop.missing <- rep(NA, n)
+kpss.test.results <- matrix(nrow = n, ncol = n.var)
+
+## method 1; no imputation
+for (i in 1:n){
+  ind.data <- read.csv(paste0(i, ".csv"))
+  n.day <- nrow(ind.data)
+  colnames(ind.data) <- c("V1", "V2", "V3", "V4",
+                          "V5", "V6", "V7", "V8")
+  ind.data[ind.data == "NA"] <- NA
+  ind.data$V8[1:(n.day - 1)] <- ind.data$V8[2:n.day]
+  ind.data$V8[n.day] <- NA
+  ## proportion of missing values in the datasets
+  prop.missing[i] <- sum(is.na(ind.data)) / (dim(ind.data)[1] * dim(ind.data)[2])
+  ind.data$day <- 1:n.day
+  ind.data$ind <- rep(i, n.day)
+  ## only include individuals with fewer than .5 mising values 
+  if(prop.missing[i] < .5){
+    # the first observation is retained 
+    if(i == 1){
+      all.data.non <- ind.data
+    }
+    else{
+      all.data.non <- rbind(all.data.non, ind.data)
+    }
+  }
+  ## KPSS stationary test
+  for(j in 1:n.var){
+   kpss.results <- kpss.test(ind.data[,j], null = "L") 
+   kpss.test.results[i,j] <- TRUE
+   if(kpss.results$p.value < (.05 / n.var)){
+     kpss.test.results[i,j] <- FALSE
+   }
+  }
+}
+## method 2: imputation with linear interpolation
+for (i in 1:n){
+  ind.data <- read.csv(paste0(i, ".csv"))
+  n.day <- nrow(ind.data)
+  colnames(ind.data) <- c("V1", "V2", "V3", "V4",
+                          "V5", "V6", "V7", "V8")
+  ind.data[ind.data == "NA"] <- NA
+  ind.data$V8[1:(n.day - 1)] <- ind.data$V8[2:n.day]
+  ind.data$V8[n.day] <- NA
+  ## proportion of missing values in the datasets
+  ind.data$day <- 1:n.day
+  ind.data$ind <- rep(i, n.day)
+  # number of variables: 8
+  n.var <- 8
+  for (j in 1:n.var){
+    ind.data[,j] <- na_interpolation(ind.data[,j])
+  }
+  ## only include individuals with fewer than .5 mising values 
+  if(prop.missing[i] < .5){
+    # the first observation is retained 
+    if(i == 1){
+      all.data.int <- ind.data
+    }
+    else{
+      all.data.int <- rbind(all.data.int, ind.data)
+    }
+  }
+}
+## (other imputation algorithms are possible, such as the Kalman filter smoother,
+## they are nevertheless not included in the current analysis)
+## method 3: inputation with moving average 
+for (i in 1:n){
+  ind.data <- read.csv(paste0(i, ".csv"))
+  n.day <- nrow(ind.data)
+  colnames(ind.data) <- c("V1", "V2", "V3", "V4",
+                          "V5", "V6", "V7", "V8")
+  ind.data[ind.data == "NA"] <- NA
+  ind.data$V8[1:(n.day - 1)] <- ind.data$V8[2:n.day]
+  ind.data$V8[n.day] <- NA
+  ## proportion of missing values in the datasets
+  ind.data$day <- 1:n.day
+  ind.data$ind <- rep(i, n.day)
+  # number of variables: 8
+  n.var <- 8
+  for (j in 1:n.var){
+    ind.data[,j] <- na_ma(ind.data[,j])
+  }
+  ## only include individuals with fewer than .5 mising values 
+  if(prop.missing[i] < .5){
+    # the first observation is retained 
+    if(i == 1){
+      all.data.ma <- ind.data
+    }
+    else{
+      all.data.ma <- rbind(all.data.ma, ind.data)
+    }
+  }
+}
+########################################
+setwd("C:/Users/Shuai Yuan/Documents/longitudinal networks/new/new analysis")
+########################################
+all.data.non <- read.csv("no imputation new.csv", sep = ",", header = TRUE)
+## analysis and reports
+# note that by changing the names of the variables in the original datasets, 
+# you could obtain graphs with corrected names of variables
+vars.list <- c("V1", "V2", "V3", "V4",
+               "V5", "V6", "V7", "V8")
+all.data.non$ind <- as.factor(all.data.non$ind)
+all.data.int$ind <- as.factor(all.data.int$ind)
+all.data.ma$ind <- as.factor(all.data.ma$ind)
+### estimate networks with and without imputations
+non.results <- mlVAR(all.data.non, vars = vars.list, idvar = "ind", lags = 1, 
+                     estimator = "lmer", contemporaneous = "orthogonal", temporal = "orthogonal")
+int.results <- mlVAR(all.data.int, vars = vars.list, idvar = "ind", lags = 1, 
+                     estimator = "lmer", contemporaneous = "orthogonal", temporal = "orthogonal")
+ma.results <- mlVAR(all.data.ma, vars = vars.list, idvar = "ind", lags = 1, 
+                     estimator = "lmer", contemporaneous = "orthogonal", temporal = "orthogonal")
+par(mfrow=c(1,1))
+## add some ggplot2-type code to change the appearance of the current graph
+plot(non.results, type = "temporal", rule = "and")
+plot(non.results, type = "contemporaneous", rule = "and")
+## other 
+plot(int.results, type = "temporal", rule = "and")
+plot(int.results, type = "contemporaneous", rule = "and")
+plot(ma.results, type = "temporal", rule = "and")
+plot(ma.results, type = "contemporaneous", rule = "and")
+## extract the coefficients
+summary.non <- summary(non.results)
+summary.non.temporal <- summary.non$temporal
+summary.non.cont <-summary.non$contemporaneous
+############# note that typicall the between networks should not obtained from the previous analysis
+## because the results will be difficult to explain. 
+## rather we need to use the average score of each individual to create between individual networks
+
+## use the non-computed version as an example, other computed version could be used as supplementary analyses
+all.data.non.within <- all.data.non %>%
+  group_by(ind) %>%
+  summarise(V1 = mean(V1, na.rm = TRUE), V2 = mean(V2, na.rm = TRUE),V3 = mean(V3, na.rm = TRUE),V4 = mean(V4, na.rm = TRUE),
+            V5 = mean(V5, na.rm = TRUE),V6 = mean(V6, na.rm = TRUE),V7 = mean(V7, na.rm = TRUE),V8 = mean(V8, na.rm = TRUE))
+all.data.non.within <- as.data.frame(all.data.non.within)
+## check if any missing value
+sum(is.na(all.data.non.within))
+## estimate the between-person networks
+between.network <- estimateNetwork(all.data.non.within[,2:9],
+                                  default = "EBICglasso",
+                                  corMethod = "cor_auto")
+plot(between.network)
+## results
+between.network$graph
+########################################
+## data savings
+item.missing <- prop.missing * dim(ind.data)[1] * (dim(ind.data)[2] - 2)
+results <- list(missing.prop = prop.missing, missing.item = item.missing,
+                non.results = non.results, int.results = int.results,
+                ma.results = ma.results, between.network = between.network, kpss.test = kpss.test.results)
+save(results, file = "results.RData")

@@ -1,0 +1,84 @@
+#compute within-cluster distance by clustering feature by feature, select S of size s based on this
+hill_climb_GSS = function(X,k,nperms=20,itermax,threshold,tolerance, num_starts_kmeans=10){
+  X = scale(X)
+  n = dim(X)[1]
+  p = dim(X)[2]
+  tot = apply(X,2,var)*(n-1)
+  permx <- list()
+  for(i in 1:nperms){
+    permx[[i]] <- matrix(NA, nrow=n, ncol=p)
+    for(j in 1:p) permx[[i]][,j] <- sample(X[,j])
+  }
+  wcss = rep(0,p)
+  for(j in 1:p){
+    clustering = kmeans(X[,j],iter.max = 10, centers = k,algorithm = "Hartigan-Wong", trace = 0, nstart = 5)
+    wcss[j] = clustering$tot.withinss
+  }
+  rank0 = rank((tot-wcss)/tot,ties.method = "random")
+  golden.ratio = 2/(sqrt(5) +1)
+  iteration = 0
+  upper.bound = p
+  lower.bound = 1
+  p1 = floor(upper.bound - golden.ratio*(upper.bound-lower.bound))
+  p2 = floor(lower.bound + golden.ratio*(upper.bound-lower.bound))
+  #evaluate the gap statistics using p1 and p2
+  initial_set = which(rank0 > p-p1)
+  out1 = Alternate(X, k,tot, initial_set, p1, itermax, threshold)
+  permtots = rep(0,nperms)
+  for(t in 1:nperms){
+    permresult = kmeans(permx[[t]][,out1$final_set], iter.max = 50, centers=k, algorithm = "Hartigan-Wong", trace = 0, nstart = 5)
+    permtots[t] <- permresult$betweenss
+  }
+  gap1 = log(out1$betweenss) - mean(log(permtots))
+  initial_set = which(rank0 > p-p2)
+  out2 = Alternate(X, k,tot, initial_set, p2, itermax, threshold)
+  permtots = rep(0,nperms)
+  for(t in 1:nperms){
+    permresult = kmeans(permx[[t]][,out2$final_set], iter.max = 100, centers=k, algorithm = "Hartigan-Wong", trace = 0, nstart = 5)
+    permtots[t] <- permresult$betweenss
+  }
+  gap2 = log(out2$betweenss) - mean(log(permtots))
+
+  while(abs(upper.bound - lower.bound) > tolerance)
+  {
+    iteration = iteration + 1
+    if(gap2 < gap1) # then the maximum is to the left of x2
+    {
+      upper.bound = p2
+      p2 = p1
+      gap2 = gap1
+      p1 = floor(upper.bound - golden.ratio*(upper.bound - lower.bound))
+      #evaluate gaps for p1
+      initial_set = which(rank0 > p-p1)
+      out1 = Alternate(X, k,tot, initial_set, p1, itermax, threshold)
+
+      permtots = rep(0,nperms)
+      for(t in 1:nperms){
+        permresult = kmeans(permx[[t]][,out1$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+        permtots[t] <- permresult$betweenss
+      }
+      gap1 = log(out1$betweenss) - mean(log(permtots))
+    } else {
+      # the minimum is to the right of x1
+      lower.bound = p1
+      p1 = p2
+      gap1 = gap2
+      p2 = floor(lower.bound + golden.ratio * (upper.bound - lower.bound))
+      #evaluate gaps for p2
+      initial_set = which(rank0 > p-p2)
+      out2 = Alternate(X, k,tot, initial_set, p2, itermax, threshold)
+
+      permtots = rep(0,nperms)
+      for(t in 1:nperms){
+        permresult = kmeans(permx[[t]][,out2$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+        permtots[t] <- permresult$betweenss
+      }
+      gap2 = log(out2$betweenss) - mean(log(permtots))
+    }
+  }
+  s = floor((lower.bound + upper.bound)/2)
+  initial_set = which(rank0 > s)
+  out = Alternate(X, k,tot, initial_set, s, 2*itermax, threshold, num_starts_kmeans)
+  output = list(final_set = out$final_set, iternum = iteration, result = out$result, s = s, gap = max(gap1, gap2))
+  return(output)
+}

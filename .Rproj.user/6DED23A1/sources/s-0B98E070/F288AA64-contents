@@ -1,0 +1,169 @@
+#setwd("E:/Users/u1275970/Documents/sim1/situation1_3")
+#setwd("C:/Users/Shuai Yuan/surfdrive/CSCR/sim2")
+setwd("E:/Users/u1275970/Documents/sim2/try1")
+#library(iCluster)
+########## small scale simulations
+#ncluster <- 3
+memcluster <- 40
+nblock <- 2
+nvar <- c(10,10)
+psparse <- 0
+ntest <- 10
+comp_str <- NULL
+pnoisey <- .1
+pcombase <- .9
+alpha <- .95
+r_max <- 8
+k_max <- 8
+component_list <- list(c(2,0,0),c(1,1,0),c(3,0,0),c(1,1,1))
+
+clust_reg_all <- matrix(c(sqrt(.25), -sqrt(.25), sqrt(.01), -sqrt(.49),
+                      sqrt(.25), -sqrt(.25), sqrt(.49), -sqrt(.01),
+                      sqrt(.25), -sqrt(.25), -sqrt(.01), sqrt(.49),
+                      sqrt(.25), -sqrt(.25), -sqrt(.49), sqrt(.01)), nrow = 4, ncol = 4)
+ynvar <- 1
+## code for small-scale simulations
+rep <- 1:30
+conditions <- expand.grid(pnoise_x = c(.2,.3),
+                          n_cluster = c(3,4),
+                          component_set = 1:4,
+                          pmean_x = c(.1,.5),
+                          pmean_y = c(.1,.5),
+                          rep = rep)
+no_cores <- 30
+## open the connection and register the cores
+set.seed(921009)
+c1 <- makePSOCKcluster(no_cores)
+registerDoParallel(c1)
+foreach(q = 1:nrow(conditions),
+        .packages = c("combinat", "mclust",
+                      "ClusterSSCA", "PCovR","iCluster"), .combine=rbind) %dopar%{
+                        pnoisex <- conditions$pnoise_x[q]
+                        rep <- conditions$rep[q]
+                        ncluster <- conditions$n_cluster[q]
+                        common <- component_list[[conditions$component_set[q]]][1]
+                        ndistinct <- component_list[[conditions$component_set[q]]][-1]
+                        sum_com <- sum(common, ndistinct)
+                        clust_reg <- clust_reg_all[1:ncluster,1:(sum_com+1)]
+                        com_rele <- rep(1,sum_com)
+                        pmeanx <- conditions$pmean_x[q]
+                        pmeany <- conditions$pmean_y[q]
+                        ###########################
+                        sim.data <- CSSCRSim(ncluster, memcluster, common, ndistinct, nblock, nvar, ynvar,
+                                             psparse = 0, pnoise_x = pnoisex, pnoise_y = pnoisey,clust_reg, com_rele = com_rele,
+                                             comp_str = NULL, equal_loading = FALSE, n_test = ntest,
+                                             pmean_x = pmeanx, pmean_y = pmeany, p_combase = pcombase)
+                        data_x <- sim.data$x
+                        data_y <- sim.data$y
+                        true_score <- sim.data$score_all
+                        loading_x <- sim.data$loading_x
+                        loading_y <- sim.data$loading_y
+                        true_cluster_mem <- sim.data$cluster_mem
+                        noise_x <- sim.data$noise_x
+                        noise_y <- sim.data$noise_y
+                        data_x_test <- sim.data$x_test
+                        data_y_test <- sim.data$y_test
+                        true_y_mean <- sim.data$mean_y
+                        true_x_mean <- sim.data$mean_x
+                        cluster_mem_test <- sim.data$cluster_mem_test
+                        ##########################
+                        #########################
+                        #step1
+                        results_s1 <- list()
+                        loss_s1 <- rep(0,r_max)
+                        for (i in 1 : r_max){
+                          results_s1[[i]] <- csca_cpp(data_x,nvar, nblock, i, 1, 200)
+                          loss_s1[i] <- results_s1[[i]]$loss
+                        }
+                        opt_results_s1 <- ScreeSelect(loss_s1)
+                        opt_com <- opt_results_s1[[1]]
+                        ## step2
+                        results_s2 <- list()
+                        loss_s2 <- rep(0,k_max)
+                        loss_s2_2 <- rep(0,k_max)
+                        for (k in 1:k_max){
+                          flag <- 0
+                          results_csca <- csca_cpp(data_x,nvar, nblock, opt_com, k, 200)
+                          csca_results <- try(MultiCSCCR(data_x,data_y,nblock, opt_com, c(0,0), nvar, k, alpha = alpha,
+                                                     converge = 1e-3, iteration = 100, num_starts = 1, type = "known", con = TRUE,
+                                                     start_part = results_csca$cluster_mem), silent = TRUE)
+                          if(inherits(csca_results, "try-error")){
+                            flag <- 1
+                          }
+                          if(!inherits(csca_results, "try-error")){
+                            results_s2[[k]] <- csca_results
+                          }
+
+                          if(k!=1){
+                            results_iclust <- Mclust(data_x,k)
+                            iclust_results <- try(MultiCSCCR(data_x,data_y, nblock, opt_com, c(0,0), nvar, k, alpha = alpha,
+                                                        converge = 1e-3, iteration = 100, num_starts = 1, type = "known", con = TRUE,
+                                                        start_part = results_iclust$classification), silent = TRUE)
+                            if(inherits(iclust_results, "try-error")){
+                              flag <- 1
+                            }
+                            if(!inherits(iclust_results, "try-error")){
+                              if(flag == 1){
+                                results_s2[[k]] <- iclust_results
+                              }
+                              if(flag == 0){
+                                if(csca_results$loss > iclust_results$loss){
+                                  results_s2[[k]] <- iclust_results
+                                }
+                              }
+                            }
+                          }
+                          loading_x_csccr <- results_s2[[k]]$loadings
+                          loading_y_csccr <-results_s2[[k]]$regs
+                          mean_x <- results_s2[[k]]$mean_x
+                          mean_y <- results_s2[[k]]$mean_y
+                          predict_y <- CSSCRPredict(data_x, data_x_test, loading_x_csccr, loading_y_csccr, mean_x)
+                          csccr_residual <- data_y_test - predict_y[[1]]
+                          loss_s2[k] <- mean(csccr_residual^2)
+                          loss_s2_2[k] <- results_s2[[k]]$loss
+                          if(flag == 1) break
+                        }
+                        loss_s2_com <- loss_s2[1:k]
+                        loss_s2_2_com <- loss_s2_2[1:k]
+                        opt_results_s2 <- ScreeSelect(loss_s2_2_com)
+                        opt_cluster_new <- which.min(loss_s2_com)
+                        opt_cluster <- opt_results_s2[[1]]
+                        opt_cluster_new_1 <- opt_results_s2[[2]]
+                        ## step 3
+                        results_s3 <- list()
+                        loss_s3 <- rep(0,r_max)
+                        for (i in 1 : r_max){
+                          results_s3[[i]] <- csca_cpp(data_x_train,nvar, nblock, i, opt_cluster, 200)
+                          loss_s3[i] <- results_s3[[i]]$loss
+                        }
+                        opt_results_s3 <- ScreeSelect(loss_s3)
+                        opt_com <- opt_results_s3[[1]]
+                        ## step 4
+                        all_comb <- AllPartition(opt_com, nblock)
+                        loss_s4 <- rep(0, nrow(all_comb))
+                        results_s4 <- list()
+
+                        for (i in 1:nrow(all_comb)){
+                          n_com <- all_comb[i,1]
+                          n_distinct <- all_comb[i,-1]
+
+                          results_s4[[i]] <- MultiCSCCR(data_x_train,data_y_train,nblock, n_com, as.vector(t(n_distinct)), nvar, opt_cluster, alpha = alpha,
+                                                  converge = 1e-3, iteration =50, num_starts = 1, type = "known", con = TRUE,
+                                                  start_part = results_s3[[opt_com]]$cluster_mem)
+                          loading_x_csccr <- results_s4[[i]]$loadings
+                          loading_y_csccr <-results_s4[[i]]$regs
+                          mean_x <- results_s4[[i]]$mean_x
+                          mean_y <- results_s4[[i]]$mean_y
+                          predict_y <- CSSCRPredict(data_x_train, data_x_test, loading_x_csccr, loading_y_csccr, mean_x)
+                          csccr_residual <- data_y_test - predict_y[[1]]
+                          loss_s4[i] <- mean(csccr_residual^2)
+                        }
+                        best_comb <- all_comb[which.min(loss_s4),]
+                        results <- list(opt_com = opt_com, opt_cluster = opt_cluster, opt_cluster_new = opt_cluster_new, 
+                                        opt_cluster_new_1 = opt_cluster_new_1, best_comb = as.matrix(t(best_comb)),
+                                        results_s4 = results_s4[[which.min(loss_s4)]], sim.data = sim.data,
+                                        loss_s3 = loss_s3,loss_s2 = loss_s2, loss_s2_2 = loss_s2_2, loss_s1 = loss_s1)
+                        save(results, file = paste0(q, ".RData"))
+                      }
+stopCluster(c1)
+

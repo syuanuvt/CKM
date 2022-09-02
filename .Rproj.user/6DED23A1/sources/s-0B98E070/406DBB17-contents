@@ -1,0 +1,59 @@
+#' Function to visualize clusters in (variable-specific) histograms
+#'
+#' @param dataset a data frame or a matrix that contains (1) signaling variables and (2) the last column "cluster" indicating cluster assignment.
+#' @param variable The name of the variable (a string) or the index of the variable (an integer) that will be plotted in the univariate Variable plot
+#' @param plot.ind "all" or a vector of maximal length K (i.e., the number of clusters) indicates individuals from which clusters are to be plotted. Default is "all".
+#' @param color.temp The color palette for the plot. Users can specify a theme from "R color brewer". The default value is "Set2".
+
+#' @return A ggplot2 object that can be directly printed (with the command "print") or further processed.
+#' @examples
+
+PlotUniVar <- function(dataset, variable, plot.ind = "all",color.temp = "Set2"){
+
+  n.cluster <- length(unique(dataset$cluster))
+  n.sig <- ncol(dataset)-1
+  n.obs <- nrow(dataset)
+
+  if(is.numeric(variable)){
+    select.var <- dataset[,c(variable,ncol(dataset))]
+  }
+  if(!is.numeric(variable)){
+    select.var <- dataset[,c(variable,"cluster")]
+  }
+
+  new.data <- as.data.frame(select.var)
+  if(plot.ind == "all"){
+    cluster.plot <- new.data
+  }
+  if(plot.ind != "all"){
+    cluster.plot <- new.data %>%
+      dplyr::filter(cluster %in% plot.ind)
+  }
+  cluster.plot$id <- 1:nrow(cluster.plot)
+  cluster.plot.new <- reshape(as.data.frame(cluster.plot),idvar=c("id","cluster"),varying=names(cluster.plot)[1:(ncol(cluster.plot)-2)],
+                              v.names = "variable", direction="long")
+  cluster.plot.new$time <- as.factor(cluster.plot.new$time)
+  levels(cluster.plot.new$time) <- names(cluster.plot)[1:(ncol(cluster.plot)-2)]
+  cluster.plot.new$cluster <- as.factor(cluster.plot.new$cluster)
+  color <- as.factor(as.character(cluster.plot.new$cluster))
+  color.name <- brewer.pal(n = n.cluster, color.temp)
+  levels(color) <- color.name
+  final.plot <- ggplot(data = cluster.plot.new, aes(y=variable)) +
+    geom_histogram(position = "identity", bins = nrow(cluster.plot), fill = color)+
+    ylab("Responses") +
+    theme(axis.title=element_text(size=12,face="bold"),
+          panel.border      = element_blank(),
+          panel.background  = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          legend.text = element_text(hjust = 1),
+          legend.title = element_blank(),
+          legend.key.width = unit(.3, "cm"),
+          axis.line = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text.y = element_text( size = 10, color = "black"),
+          axis.text.x = element_blank()) +
+    xlab("Variables") +
+    facet_wrap(~time)
+  return(final.plot)
+}

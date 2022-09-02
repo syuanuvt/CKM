@@ -1,0 +1,44 @@
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS="true")
+remotes::install_github("syuanuvt/CKM")
+library(remotes)
+library(CKM)
+library(multichull)
+ncluster <- 3
+nobs <- 90
+nnoisevar <- 50
+nvalidvar <- 30
+mu <- .55
+var <- 1
+sim.data <- DataGenCKM(nobs, ncluster, nvalidvar, nnoisevar, mu, var)
+dataset <- sim.data[[1]]
+cluster.assign <- sim.data[[2]]
+ckm.sel.no <- CKMSelNo(dataset, ncluster, nnoisevar)
+ckm.sel.var <- CKMSelVar(dataset, ncluster, search = "dep", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = FALSE)
+ckm.sel.all <- CKMSelAll(dataset,2,6)
+dataset <- dataset
+plot.ckm(dataset, ckm.sel.no)
+summary.ckm(dataset, ckm.sel.no)
+minclust <- 2
+maxclust <- 6
+search <- "dep"
+maxnum <- 10
+n.rep <- 20
+method <- "globalmax"
+kmeans_starts <- 20
+recal <- TRUE
+sr <- TRUE
+ckm.sel.all <- CKMSelAll(dataset, minclust = 2, maxclust = 5, search = "dep", maxnum = 10, n.rep = 20, method = "globalmax", kmeans_starts = 20, recal = TRUE, sr = TRUE)
+#################################
+### normal model selection
+ckm.sel.var <- CKMSelVar(dataset, ncluster, search = "dep", maxnum = 10, n.rep = 20, kmeans_starts = 20, sr = TRUE)
+ckm.sel.no <- CKMSelNo(dataset, ncluster, 41)
+ckm.sel.no$signaling.set
+num <- floor(41/2)
+n.rep <- 50
+sig.list <- matrix(nrow = n.rep, ncol = (ncol(dataset)-num))
+for(i in 1:n.rep){
+  dataset.half <- dataset[sample(1:nrow(dataset), floor(nrow(dataset)/2)),]
+  sig.list[i,] <- CKMSelNo(dataset.half, ncluster, num)[[2]]
+}
+table(sig.list)
+

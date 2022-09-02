@@ -1,0 +1,223 @@
+setwd("//tsclient/C/Users/Shuai Yuan/Documents/CSCR/sim1/condition1")
+########## small scale simulations
+ncluster <- 3
+memcluster <- 40
+common <- 2
+ndistinct <- c(1,1)
+nblock <- 2
+nvar <- c(10,10)
+psparse <- 0
+ntest <- 10
+comp_str <- c(.25,.25,.25,.25)
+
+clust_reg <- matrix(c(sqrt(.25), -sqrt(.25), sqrt(.01),
+                      sqrt(.25), -sqrt(.25), sqrt(.49),
+                      sqrt(.25), -sqrt(.25), -sqrt(.01),
+                      sqrt(.25), -sqrt(.25), -sqrt(.49)), nrow = 3, ncol = 4)
+ynvar <- 1
+## code for small-scale simulations
+rep <- 1:40
+conditions <- expand.grid(pnoise_x = c(.2,.3), pnoise_y = .1,
+                          pmean_x = c(.1,.5,.9), pmean_y = c(.1,.5,.9),
+                          p_combase = c(.75, .9), alpha_test = .95,
+                          rep = rep)
+setwd("//tsclient/C/Users/Shuai Yuan/Documents/CSCR/sim1/condition1")
+nonexist <- c()
+for (i in 1:nrow(conditions)){
+  if(!file.exists(paste0(i, ".RData"))){
+    nonexist <- c(nonexist, i)
+  }
+}
+no_cores <- 24
+## open the connection and register the cores
+set.seed(921009)
+c1 <- makePSOCKcluster(no_cores)
+registerDoParallel(c1)
+foreach(i = nonexist,
+        .packages = c("mbclusterwise", "flexmix", "combinat", "mclust",
+                      "iCluster", "ClusterSSCA", "PCovR"), .combine=rbind) %dopar%{
+
+                        compute_results <- rep(NA, 15)
+
+                        pnoisex <- conditions$pnoise_x[i]
+                        pnoisey <- conditions$pnoise_y[i]
+                        pmeanx <- conditions$pmean_x[i]
+                        pmeany <- conditions$pmean_y[i]
+                        pcombase <- conditions$p_combase[i]
+                        rep <- conditions$rep[i]
+                        alpha <- conditions$alpha_test[i]
+                        com_rele <- c(1,1,1,1)
+
+                        sim.data <- CSSCRSim(ncluster, memcluster, common, ndistinct, nblock, nvar, ynvar,
+                                             psparse = 0, pnoise_x = pnoisex, pnoise_y = pnoisey,clust_reg, com_rele = com_rele, 
+                                             comp_str = comp_str, equal_loading = FALSE, n_test = ntest,
+                                             pmean_x = pmeanx, pmean_y = pmeany, p_combase = pcombase)
+                        
+                        data_x <- sim.data$x
+                        data_y <- sim.data$y
+                        true_score <- sim.data$score_all
+                        loading_x <- sim.data$loading_x
+                        loading_y <- sim.data$loading_y
+                        true_cluster_mem <- sim.data$cluster_mem
+                        noise_x <- sim.data$noise_x
+                        noise_y <- sim.data$noise_y
+                        data_x_test <- sim.data$x_test
+                        data_y_test <- sim.data$y_test
+                        true_y_mean <- sim.data$mean_y
+                        cluster_mem_test <- sim.data$cluster_mem_test
+                        ############################################################
+                        n_block <- nblock
+                        n_com <- common
+                        n_distinct <- ndistinct
+                        n_var <- nvar
+                        n_cluster <- ncluster
+                        ####
+                        ###
+                        # Method3: the two-step approach with CSSCA
+                        results4 <- FixedCSSCA(data_x,n_block, n_com, n_distinct, n_var, n_cluster, 0)
+                        ###
+                        loading_x_cssca <- results4$loadings
+                        loading_y_cssca <- list()
+                        mean_x <- matrix(nrow = n_cluster, ncol=sum(n_var))
+                        for (j in 1:n_cluster){
+                          y_j <- data_y[results4$cluster_mem == j]
+                          score_j <- results4$scores[[j]]
+                          cssca_lm <- lm(y_j ~ score_j)
+                          loading_y_cssca[[j]] <- t(cssca_lm$coefficients)
+                          mean_x[j,] <- apply(data_x[results4$cluster_mem == j,], 2, mean)
+                        }
+                        #condition.results[i,7] <- adjustedRandIndex(as.vector(results4$cluster_mem), true_cluster_mem)
+                        compute_results[7] <- adjustedRandIndex(as.vector(results4$cluster_mem), true_cluster_mem)
+                        predict_y <- CSSCRPredict(data_x, data_x_test, loading_x_cssca, loading_y_cssca, mean_x)
+                        cssca_residual <- data_y_test - predict_y[[1]]
+                        #condition.results[i,9] <- mean(cssca_residual^2)
+                        compute_results[9] <- mean(cssca_residual^2)
+                        new_mem <- predict_y[[2]]
+                        #condition.results[i,8] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        compute_results[8] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        ####
+                        # Method 2: the two-step approach with iCluster
+                        iclust.results <- iCluster2(list(data_x[,1:10], data_x[,11:20]), n_cluster)
+                        #iclust.results$clusters
+                        #condition.results[i,4] <- adjustedRandIndex(iclust.results$clusters, true_cluster_mem)
+                        compute_results[4]<- adjustedRandIndex(iclust.results$clusters, true_cluster_mem)
+                        new_mem <- rep(NA, nrow(data_x_test))
+                        for(j in 1:nrow(data_x_test)){
+                          new_data <- rbind(data_x, data_x_test[j,])
+                          new.iclust.results <- iCluster2(list(new_data[,1:10], new_data[,11:20]), ncluster)
+                          new.assign <- new.iclust.results$clusters[(nrow(data_x)+1)]
+                          old.assign <- iclust.results$clusters[which(new.iclust.results$clusters == new.assign)]
+                          new_mem[j] <- floor(median(old.assign[-length(old.assign)]))
+                        }
+                        #condition.results[i,5] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        compute_results[5] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        results3 <- CSCCR_single(data_x,data_y,n_block, n_com, n_distinct, n_var, alpha = alpha,
+                                                 converge = 1e-6, converge_2 = 1e-6, iteration = 100,
+                                                 iclust.results$clusters)
+                        loading_x_csccr <- results3$loadings
+                        loading_y_csccr <- results3$regs
+                        mean_x <- results3$mean_x
+                        predict_y <- CSSCRPredict(data_x, data_x_test, loading_x_csccr, loading_y_csccr, mean_x, new_assign = new_mem)
+                        iclust_residual <- data_y_test - predict_y[[1]]
+                        #condition.results[i,6] <- mean(iclust_residual^2)
+                        compute_results[6] <- mean(iclust_residual^2)
+                        
+                        ### method 1: CSCR with differnt initialization
+                        mclust.results <- Mclust(data_x, n_cluster)
+                        ## error flag
+                        flag <- 0
+                        ###
+                        ###### from 5 to 1
+                        results2a <- try(MultiCSCCR(data_x,data_y,n_block, n_com, n_distinct, n_var, n_cluster, alpha = alpha,
+                                                    converge = 1e-6, iteration = 100, num_starts = 1, type = "known", con = TRUE,
+                                                    start_part = as.vector(results4$cluster_mem)))
+                        results2b <- try(MultiCSCCR(data_x,data_y,n_block, n_com, n_distinct, n_var, n_cluster, alpha = alpha,
+                                                    converge = 1e-6, iteration = 100, num_starts = 5, type = "known", con = TRUE,
+                                                    start_part = mclust.results$classification))
+                        if(inherits(results2a, "try-error")){
+                          if(inherits(results2b, "try-error")){
+                            flag <- 1
+                          }
+                          if(!inhereits(results2b, "try-error")){
+                            results2 <- results2b
+                          }
+                        }
+                        if(!inherits(results2a, "try-error")){
+                          if(inherits(results2b, "try-error")){
+                            results2 <- results2a
+                          }
+                          if(!inherits(results2b, "try-error")){
+                            if(results2a$loss <= results2b$loss){
+                              results2 <- results2a
+                            }
+                            if(results2a$loss > results2b$loss){
+                              results2 <- results2b
+                            }
+                          }
+                        }
+                        
+                        if(flag == 1){
+                          compute_results[1:3] <- rep(NA, 3)
+                        }
+                        if(flag == 0){
+                          
+                          emp.score <- results2$score
+                          #condition.results[i,1] <- adjustedRandIndex(results2$cluster_assign, true_cluster_mem)
+                          compute_results[1] <- adjustedRandIndex(results2$cluster_assign, true_cluster_mem)
+                          loading_x_csccr <- results2$loadings
+                          loading_y_csccr <- results2$regs
+                          mean_x <- results2$mean_x
+                          mean_y <- results2$mean_y
+                          predict_y <- CSSCRPredict(data_x, data_x_test, loading_x_csccr, loading_y_csccr, mean_x)
+                          csccr_residual <- data_y_test - predict_y[[1]]
+                          #condition.results[i,3] <- mean(csccr_residual^2)
+                          compute_results[3] <- mean(csccr_residual^2)
+                          new_mem <- predict_y[[2]]
+                          #condition.results[i,2] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                          compute_results[2] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        }
+                        
+                        ## Method 4: Cluster-wise regression
+                        all_data <- as.data.frame(cbind(data_x,data_y))
+                        colnames(all_data) <- c("a","b","c","d","e","f","g","h","i",
+                                                "j","k","l","m","n","o","p","q","r",
+                                                "s","t","y")
+                        new_data <- as.data.frame(data_x_test)
+                        colnames(new_data) <- c("a","b","c","d","e","f","g","h","i",
+                                                "j","k","l","m","n","o","p","q","r",
+                                                "s","t")
+                        clr_results <- flexmix(y~a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+t,data = all_data, k =2)
+                        #condition.results[i,10] <- adjustedRandIndex(clusters(clr_results), true_cluster_mem)
+                        compute_results[10] <- adjustedRandIndex(clusters(clr_results), true_cluster_mem)
+                        clr_residual <- data_y_test - predict(clr_results, newdata = new_data, aggregate=TRUE)[[1]]
+                        new_data_fake <- cbind(new_data, rep(1,nrow(new_data)))
+                        names(new_data_fake)[(sum(n_var)+1)] <- "y"
+                        new_mem <- clusters(clr_results, newdata = new_data_fake)
+                        #condition.results[i,11] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        compute_results[11] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        #condition.results[i,12] <- mean(clr_residual^2)
+                        compute_results[12] <- mean(clr_residual^2)
+                        ###
+                        ## Method 5: multiblock regression
+                        data_y_matrix <- as.matrix(data_y)
+                        rownames(data_y_matrix) <- 1:length(data_y)
+                        rownames(data_x) <- 1:length(data_y)
+                        cluster_pls <- cw.multiblock(Y = data_y_matrix, X = data_x, blo = n_var, option = "none", G = n_cluster, H = 4)
+                        #condition.results[i,13] <- adjustedRandIndex(cluster_pls$cluster, true_cluster_mem)
+                        compute_results[13] <- adjustedRandIndex(cluster_pls$cluster, true_cluster_mem)
+                        predict_pls <- cw.predict(data_x_test, cluster_pls)
+                        predict_y_pls <- rep(NA, length(data_y_test))
+                        for(j in 1:length(data_y_test)){
+                          cluster.i <- as.numeric(predict_pls$clusternew)[j]
+                          index <- sum(as.numeric(predict_pls$clusternew)[1:j]==cluster.i)
+                          predict_y_pls[j] <- predict_pls$Ypred.raw[[cluster.i]][index]
+                        }
+                        new_mem <- predict_pls$clusternew
+                        #condition.results[i,14] <- adjustedRandIndex(new_mem,cluster_mem_test)
+                        compute_results[14]<- adjustedRandIndex(new_mem,cluster_mem_test)
+                        pls_residual <- data_y_test - predict_y_pls
+                        #condition.results[i,15] <- mean(pls_residual^2)
+                        compute_results[15]<-mean(pls_residual^2)
+
+                        save(compute_results, file = paste0(i,".RData"))
+                      }

@@ -1,0 +1,42 @@
+library("tseries")
+library(mlVAR)
+library(qgraph)
+library(apaTables)
+library(dplyr)
+library(reshape2)
+library(imputeTS)
+library(bootnet)
+library(iCluster)
+
+setwd("/Users/renlei/Desktop/NEW-TOTAL/1")
+
+all.data.non <- read.csv(file = "no_move_missing.csv")
+
+vars.list <- c("excessive_worry", "uncontrollable_worry", "restlessness", "fatigue",
+               "difficulty_concentrating", "irritable", "muscle_tension", "sleep_disturbance")
+
+all.data.non <- as.matrix(all.data.non)
+colnames(all.data.non)[2:9] <- vars.list
+non.results <- mlVAR(as.data.frame(all.data.non[,c(2:9,11)]), vars = vars.list, idvar = "ind", lags = 1, 
+                     estimator = "lmer", contemporaneous = "orthogonal", temporal = "orthogonal")
+graph1 <- plot(non.results, type = "temporal", rule = "and", layout = "spring", vsize = 10.5, label.cex = 0.27,
+     label.scale = FALSE, edge.labels = TRUE, theme = "colorblind", layoutScale = c(1,1), nonsig = "hide",
+     asize = 3 ,mar = c(4,4,4,4),border.width=1.1, border.color='000000',
+     color=c("#d73027", "#fc8d59", "#fee090", "#ffffbf","#0072B2","#4575b4","#91bfdb","#e0f3f8", "#91bfdb"))
+
+graph2 <- plot(non.results, type = "contemporaneous", rule = "and", layout = "spring", vsize = 11, label.cex = 0.27,
+     label.scale = FALSE, edge.labels = TRUE, theme = "colorblind", layoutScale = c(1.2,1.2), nonsig = "hide",
+     asize = 3 ,mar = c(4,4,4,4),border.width=1.1, border.color='000000',
+     color=c("#d73027", "#fc8d59", "#fee090", "#ffffbf","#0072B2","#4575b4","#91bfdb","#e0f3f8", "#91bfdb"))
+
+centralityPlot(graph1, include = c("OutStrength","InStrength"), raw)
+centralityTable(graph1)
+
+graph1mat = getWmat(graph1)
+
+centralityPlot(graph2, include = c("Strength"))
+centralityTable(graph2)
+
+graph2mat = getWmat(graph2)
+
+

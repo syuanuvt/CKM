@@ -1,0 +1,19 @@
+### additional option to adjust the number of kmeans starts
+Alternate= function(X, k,tot, initial_set, s, itermax, threshold, num_starts_kmeans = 10){
+  p = dim(X)[2]
+  set0 = initial_set
+  set1 = c(0)
+  iternum = 0
+  while(iternum<= itermax && length(setdiff(set1,set0)) + length(setdiff(set0,set1)) > threshold ){
+    clustering = kmeans(X[,set0],iter.max = 100, centers=k,algorithm = "Hartigan-Wong",trace = 0,nstart=num_starts_kmeans)
+    result = clustering$cluster
+
+    wcss = apply(X,2,withinss,G = result, K = k)
+    iternum = iternum + 1
+
+    set1 = set0
+    set0 = which(rank((tot-wcss)/tot,ties.method = "random") > p-s)
+  }
+  out = list(final_set = set0, iternum = iternum, result = result, betweenss = clustering$betweenss)
+  return(out)
+}

@@ -1,0 +1,566 @@
+##################################################
+#### computational code for three simulations ####
+##################################################
+##################################################################################
+### install the CKM package if it has not been installed
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS="true")
+remotes::install_github("syuanuvt/CKM")
+##################################################################################
+library(sparcl)
+library(rARPACK)
+library(combinat)
+library(mclust)
+library(dplyr)
+library(Biobase)
+library(doParallel)
+library(mclust)
+library(clustrd)
+library(cluster)
+library(remotes)
+library(GGally)
+library(CKM)
+library(fpc)
+library(NbClust)
+
+##################################################################################
+##### SAS and model selection
+##################################################################################
+withinss = function(X,G,K){
+  if(is.vector(X) && is.atomic(X)){
+    group = list()
+    wcss = 0
+    for(j in 1:K){
+      group[[j]] = which(G == j)
+      l = length(group[[j]])
+      if(l>1){
+        wcss = wcss + var(X[group[[j]]])*(l-1)
+      }
+    }
+  } else if (is.matrix(X)){
+    group = list()
+    wcss = 0
+    for(j in 1:K){
+      group[[j]] = which(G == j)
+      l = length(group[[j]])
+      if(l>1){
+        wcss = wcss + sum(apply(X[group[[j]],],2,var)*(l-1))
+      }
+    }
+  } else {
+    cat("X is niether a vector nor a matrix! \n")
+    return(NULL)
+  }
+
+  return(wcss)
+}
+
+### additional option to adjust the number of kmeans starts
+Alternate= function(X, k,tot, initial_set, s, itermax, threshold, num_starts_kmeans = 10){
+  p = dim(X)[2]
+  set0 = initial_set
+  set1 = c(0)
+  iternum = 0
+  while(iternum<= itermax && length(setdiff(set1,set0)) + length(setdiff(set0,set1)) > threshold ){
+    clustering = kmeans(X[,set0],iter.max = 100, centers=k,algorithm = "Hartigan-Wong",trace = 0,nstart=num_starts_kmeans)
+    result = clustering$cluster
+
+    wcss = apply(X,2,withinss,G = result, K = k)
+    iternum = iternum + 1
+
+    set1 = set0
+    set0 = which(rank((tot-wcss)/tot,ties.method = "random") > p-s)
+  }
+  out = list(final_set = set0, iternum = iternum, result = result, betweenss = clustering$betweenss)
+  return(out)
+}
+
+hill_climb = function(X,k,s,itermax,threshold,tolerance,num_starts_kmeans=10){
+  X = scale(X)
+  n = dim(X)[1]
+  p = dim(X)[2]
+  tot = apply(X,2,var)*(n-1)
+  wcss = rep(0,p)
+  for(j in 1:p){
+    clustering = kmeans(X[,j],iter.max = 500, centers = k,algorithm = "Hartigan-Wong", trace = 0)
+    wcss[j] = clustering$tot.withinss
+  }
+  rank0 = rank((tot-wcss)/tot,ties.method = "random")
+
+  initial_set = which(rank0 > s)
+  out = Alternate(X, k,tot, initial_set, s, 2*itermax, threshold, num_starts_kmeans)
+  output = list(final_set = out$final_set, result = out$result, s = s)
+  return(output)
+}
+
+#compute within-cluster distance by clustering feature by feature, select S of size s based on this
+hill_climb_GSS = function(X,k,nperms=20,itermax,threshold,tolerance, num_starts_kmeans=10){
+  X = scale(X)
+  n = dim(X)[1]
+  p = dim(X)[2]
+  tot = apply(X,2,var)*(n-1)
+  permx <- list()
+  for(i in 1:nperms){
+    permx[[i]] <- matrix(NA, nrow=n, ncol=p)
+    for(j in 1:p) permx[[i]][,j] <- sample(X[,j])
+  }
+  wcss = rep(0,p)
+  for(j in 1:p){
+    clustering = kmeans(X[,j],iter.max = 10, centers = k,algorithm = "Hartigan-Wong", trace = 0, nstart = 5)
+    wcss[j] = clustering$tot.withinss
+  }
+  rank0 = rank((tot-wcss)/tot,ties.method = "random")
+  golden.ratio = 2/(sqrt(5) +1)
+  iteration = 0
+  upper.bound = p
+  lower.bound = 1
+  p1 = floor(upper.bound - golden.ratio*(upper.bound-lower.bound))
+  p2 = floor(lower.bound + golden.ratio*(upper.bound-lower.bound))
+  #evaluate the gap statistics using p1 and p2
+  initial_set = which(rank0 > p-p1)
+  out1 = Alternate(X, k,tot, initial_set, p1, itermax, threshold)
+  permtots = rep(0,nperms)
+  for(t in 1:nperms){
+    permresult = kmeans(permx[[t]][,out1$final_set], iter.max = 50, centers=k, algorithm = "Hartigan-Wong", trace = 0, nstart = 5)
+    permtots[t] <- permresult$betweenss
+  }
+  gap1 = log(out1$betweenss) - mean(log(permtots))
+  initial_set = which(rank0 > p-p2)
+  out2 = Alternate(X, k,tot, initial_set, p2, itermax, threshold)
+  permtots = rep(0,nperms)
+  for(t in 1:nperms){
+    permresult = kmeans(permx[[t]][,out2$final_set], iter.max = 100, centers=k, algorithm = "Hartigan-Wong", trace = 0, nstart = 5)
+    permtots[t] <- permresult$betweenss
+  }
+  gap2 = log(out2$betweenss) - mean(log(permtots))
+
+  while(abs(upper.bound - lower.bound) > tolerance)
+  {
+    iteration = iteration + 1
+    if(gap2 < gap1) # then the maximum is to the left of x2
+    {
+      upper.bound = p2
+      p2 = p1
+      gap2 = gap1
+      p1 = floor(upper.bound - golden.ratio*(upper.bound - lower.bound))
+      #evaluate gaps for p1
+      initial_set = which(rank0 > p-p1)
+      out1 = Alternate(X, k,tot, initial_set, p1, itermax, threshold)
+
+      permtots = rep(0,nperms)
+      for(t in 1:nperms){
+        permresult = kmeans(permx[[t]][,out1$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+        permtots[t] <- permresult$betweenss
+      }
+      gap1 = log(out1$betweenss) - mean(log(permtots))
+    } else {
+      # the minimum is to the right of x1
+      lower.bound = p1
+      p1 = p2
+      gap1 = gap2
+      p2 = floor(lower.bound + golden.ratio * (upper.bound - lower.bound))
+      #evaluate gaps for p2
+      initial_set = which(rank0 > p-p2)
+      out2 = Alternate(X, k,tot, initial_set, p2, itermax, threshold)
+
+      permtots = rep(0,nperms)
+      for(t in 1:nperms){
+        permresult = kmeans(permx[[t]][,out2$final_set], iter.max = 20, centers=k, algorithm = "Hartigan-Wong", trace = 0)
+        permtots[t] <- permresult$betweenss
+      }
+      gap2 = log(out2$betweenss) - mean(log(permtots))
+    }
+  }
+  s = floor((lower.bound + upper.bound)/2)
+  initial_set = which(rank0 > s)
+  out = Alternate(X, k,tot, initial_set, s, 2*itermax, threshold, num_starts_kmeans)
+  output = list(final_set = out$final_set, iternum = iteration, result = out$result, s = s, gap = max(gap1, gap2))
+  return(output)
+}
+
+## the additional function to find the local maxima
+localMaxima <- function(x) {
+  # Use -Inf instead if x is numeric (non-integer)
+  y <- diff(c(-.Machine$integer.max, x)) > 0L
+  rle(y)$lengths
+  y <- cumsum(rle(y)$lengths)
+  y <- y[seq.int(1L, length(y), 2L)]
+  if (x[[1]] == x[[2]]) {
+    y <- y[-1]
+  }
+  y
+}
+###########################################################################################################
+###### Simulation 1
+###########################################################################################################
+set.seed(970912)
+n.cluster <- c(3,5,30)
+n.noisevar <- c(5,50,250,1000)
+var <- 1
+n.validvar <- 50
+nmu <- c(0.6,0.7,0.8,1)
+con.rep <- 1:40
+n.rep <- 20
+condition0 <- expand.grid(ncluster = n.cluster, nnoisevar= n.noisevar, nvalidvar = n.validvar,
+                          nmu = nmu, rep = con.rep)
+set.seed(970912)
+no_cores <- 30
+c1 <- makePSOCKcluster(no_cores)
+registerDoParallel(c1)
+foreach(h = 1:nrow(condition0),
+        .packages = c("mclust", "combinat", "sparcl",
+        "rARPACK", "Biobase", "CKM", "RSpectra", "cluster"
+                     ), .combine=rbind) %dopar%{
+
+                       n.cluster <- condition0$ncluster[h]
+                       n.obs <- n.cluster * 50
+                       n.noisevar <- condition0$nnoisevar[h]
+                       n.validvar <- condition0$nvalidvar[h]
+                       mu <- condition0$nmu[h]
+
+                       n.totalvar <- n.noisevar + n.validvar
+
+                       sim.data <- DataGenCKM(n.obs, n.cluster, n.validvar, n.noisevar, mu, var)
+                       dataset <- sim.data$data
+                       cluster.assign <- sim.data$cluster.assign
+
+                       ##############################################
+                       out <- list()
+                       ## CKM
+                       prc1 <- proc.time()
+                       results <- CKMSelNo(dataset, n.cluster, n.noisevar, num_starts_kmeans = 10)
+                       classError(results$cluster.assign, cluster.assign)
+                       use.time <- proc.time() - prc1
+                       ## SAS
+                       prc2 <- proc.time()
+                       results2 <- hill_climb(dataset, n.cluster, n.validvar, itermax=100,threshold=0,tolerance=1, num_starts_kmeans=10)
+                       classError(results2$result, cluster.assign)
+                       use.time2 <- proc.time() - prc2
+                       ## SKM
+                       prc3 <- proc.time()
+                       number <- 0
+                       flag <- 0
+                       if(n.cluster != 30){
+                         while(number < 3 & flag == 0){
+                           number <- number + 1
+                           results3 <- try(KMeansSparseCluster.permute(dataset, K = n.cluster, wbounds = seq(1.001,10,len= 200), nperms=n.rep))
+                           if(!inherits(results3, "try-error"))
+                           {
+                             flag <- 1
+
+                             if(sum(results3$nnonzerows == n.validvar) > 0){
+                               select.wbound <- results3$wbounds[which(results3$nnonzerows == n.validvar)]
+                               mean.wbound <- mean(select.wbound)
+                               results3.plus <- KMeansSparseCluster(dataset, K = n.cluster, wbounds = mean.wbound, nstart = 1000)
+                               records3 <- classError(cluster.assign, results3.plus[[1]]$Cs)[[2]]
+                               signaling.set <- which(results3.plus[[1]]$ws != 0)
+                             }
+
+                             if(sum(results3$nnonzerows == n.validvar) == 0){
+
+                               left <- sort(which(results3$nnonzerows < n.validvar), decreasing = TRUE)[1]
+                               right <- left + 1
+                               mean.wbound <- mean(results3$wbounds[c(left,right)])
+                               results3.plus <- KMeansSparseCluster(dataset, K = n.cluster, wbounds = mean.wbound, nstart = 1000)
+                               records3 <- classError(cluster.assign, results3.plus[[1]]$Cs)[[2]]
+                               signaling.set <- which(results3.plus[[1]]$ws != 0)
+                             }
+                           }
+
+                           if(inherits(results3, "try-error"))
+                           {
+                             records3 <- NA
+                             out[[3]] <- NA
+                           }
+                         }
+                       }
+                       use.time3  <- proc.time() - prc3
+
+                       records <- classError(cluster.assign, results$cluster.assign)[[2]]
+                       records2 <- classError(cluster.assign, results2$result)[[2]]
+
+                       # the current method
+                       out[[1]] <- list(value = records, time = use.time[1], signaling.set = results$signaling.set)
+                       out[[2]] <- list(value = records2, time = use.time2[1], signaling.set = results2$final_set)
+                       if(flag == 1){
+                         out[[3]] <- list(value = records3, time = use.time3[1], signaling.set = signaling.set)
+                       }
+                       out[[4]] <- 1:n.validvar
+                       save(out, file = paste0(h, ".RData"))
+                     }
+
+stopCluster(c1)
+
+###########################################################################################################
+###### Simulation 2
+###########################################################################################################
+set.seed(970912)
+n.cluster <- c(3,5,30)
+n.noisevar <- c(5,50,250,1000)
+var <- 1
+n.rep <- 20
+n.validvar <- 50
+nmu <- c(0.6,0.7,0.8,1)
+con.rep <- 1:40
+condition1 <- expand.grid(ncluster = n.cluster, nnoisevar= n.noisevar, nvalidvar = n.validvar,
+                          nmu = nmu, rep = con.rep)
+no_cores <- 30
+c1 <- makePSOCKcluster(no_cores)
+registerDoParallel(c1)
+foreach(h = 1:nrow(condition1),
+                     .packages = c("mclust", "combinat", "multichull",
+                                   "sparcl",   "rARPACK", "Biobase", "CKM", "RSpectra", "cluster"
+                     ), .combine=rbind) %dopar%{
+
+                       n.cluster <- condition1$ncluster[h]
+                       n.obs <- n.cluster * 50
+                       n.noisevar <- condition1$nnoisevar[h]
+                       mu <- condition1$nmu[h]
+                       n.totalvar <- n.noisevar + n.validvar
+                       records <- matrix(nrow = 3, ncol = 4)
+
+                       sim.data <- DataGenCKM(n.obs, n.cluster, n.validvar, n.noisevar, mu, var)
+                       dataset <- sim.data[[1]]
+                       cluster.assign <- sim.data[[2]]
+                       valid.set <- 1:n.validvar
+                       ##############################################
+                       valid.set.test <- list()
+                       ##############################################
+                       ### it is no longer feasible to determine the elbow point by visual inspection
+                       ### therefore, we use a cutoff (1/3) to automatically determine the optimal value of K
+                       prc1 <- proc.time()
+                       results.ckm <- CKMSelVar(dataset, n.cluster, kmeans_starts = 20, ratio = 1/3)
+                       a <- proc.time() - prc1
+                       records[3,1] <- a[1]
+                       records[2,1] <- length(results.ckm$signaling.set)
+                       records[1,1] <- classError(cluster.assign, results.ckm$cluster.assign)[[2]]
+                       valid.set.test[[1]] <- results.ckm$signaling.set
+
+                       prc2 <- proc.time()
+                       results.gss <- hill_climb_GSS(dataset, n.cluster, nperms=n.rep,itermax=500,threshold=0,tolerance=1, num_starts_kmeans = 20)
+                       a <- proc.time() - prc2
+                       records[3,2] <- a[1]
+                       records[2,2] <- length(results.gss$final_set)
+                       records[1,2] <- classError(cluster.assign, results.gss$result)[[2]]
+                       valid.set.test[[2]] <- results.gss$final_set
+
+                       if(n.cluster != 30){
+                         prc3 <- proc.time()
+                         permute.method <- try(KMeansSparseCluster.permute(dataset, K = n.cluster, wbounds = seq(1.001,10,len= 100), nperms=n.rep))
+                         a <- proc.time() - prc3
+                         if(inherits(permute.method, "try-error"))
+                         {
+                           prc3 <- proc.time()
+                           permute.method <- try(KMeansSparseCluster.permute(dataset, K = n.cluster, wbounds = seq(1.001,10,len= 100), nperms=n.rep))
+                           a <- proc.time() - prc3
+                           if(inherits(permute.method, "try-error")){
+                             prc3 <- proc.time()
+                             permute.method <- try(KMeansSparseCluster.permute(dataset, K = n.cluster, wbounds = seq(1.001,10,len= 100), nperms=n.rep))
+                             a <- proc.time() - prc3
+                             if(inherits(permute.method, "try-error")){
+                               records[3,3] <- NA
+                               records[2,3] <- NA
+                               records[1,3] <- NA
+                               valid.set.test[[3]] <- NA
+                             }
+                           }
+
+                         }
+                         if(!inherits(permute.method, "try-error"))
+                         {
+                           max.gap <- max(permute.method$gaps)
+                           max.gap.sd <- permute.method$sdgaps[which(permute.method$gaps == max.gap)[1]]
+                           gap.crit <- max.gap - max.gap.sd
+                           wbound.opt <- permute.method$wbounds[sort(which(permute.method$gaps < gap.crit), decreasing = TRUE)[1]]
+                           result.method1 <- KMeansSparseCluster(dataset, K = n.cluster, wbounds = wbound.opt, nstart = 1000)
+                           records[2,3] <- length(which(result.method1[[1]]$ws != 0))
+                           records[1,3] <- classError(cluster.assign, result.method1[[1]]$Cs)[[2]]
+                           records[3,3] <- a[1]
+                           valid.set.test[[3]] <- which(result.method1[[1]]$ws != 0)
+                         }
+                       }
+
+                       prc4 <- proc.time()
+                       kmeans.results <- kmeans(dataset, n.cluster, nstart = n.rep)
+                       a <- proc.time() - prc4
+                       records[3,4] <- a[1]
+                       records[2,4] <- ncol(dataset)
+                       records[1,4] <- classError(cluster.assign, kmeans.results$cluster)[[2]]
+                       valid.set.test[[4]] <- 1:ncol(dataset)
+
+
+                       results <- list(records = records, valid.set.test = valid.set.test, dataset = dataset)
+
+                       save(results, file = paste0(h, ".RData"))
+                     }
+
+stopCluster(c1)
+
+###########################################################################################################
+###### Simulation 3
+###########################################################################################################
+
+set.seed(970912)
+n.cluster <- c(3,5,15)
+n.noisevar <- c(5,50,250,1000)
+var <- 1
+n.validvar <- 50
+n.rep <- 30
+nmu <- c(0.6,0.7, 0.8,1)
+con.rep <- 1:40
+condition2 <- expand.grid(ncluster = n.cluster, nnoisevar= n.noisevar, nmu = nmu, rep = con.rep)
+no_cores <- 30
+c1 <- makePSOCKcluster(no_cores)
+registerDoParallel(c1)
+sim2_data <- foreach(h = 1:nrow(condition2),
+                     .packages = c("mclust", "combinat","multichull",
+                                   "fpc",   "rARPACK", "CKM", "RSpectra", "cluster", "NbClust"
+                     ), .combine=rbind) %dopar%{
+
+                       n.cluster <- condition2$ncluster[h]
+                       n.obs <- n.cluster * 50
+
+                       n_noisevar <- condition2$nnoisevar[h]
+                       mu <- condition2$nmu[h]
+                       if(n.cluster == 3 | n.cluster == 5){
+                         search.grid <- 2:10
+                       }
+                       if(n.cluster == 30){
+                         search.grid <- 26:34
+                       }
+                       if(n.cluster == 15){
+                         search.grid <- 11:19
+                       }
+                       maxclust <- max(search.grid)
+                       minclust <- min(search.grid)
+
+                       searchclust <- length(search.grid)
+
+                       records <- rep(NA, 12)
+
+                       ## data generation
+                       sim.data <- DataGenCKM(n.obs, n.cluster, n.validvar, n_noisevar, mu, var)
+                       dataset <- sim.data[[1]]
+                       cluster.assign <- sim.data[[2]]
+
+                       ## on the full datasets
+                       # global max and first max
+                       b <- clusGap_con(dataset, FUN=kmeans, K.min = minclust, K.max=maxclust, B=50, spaceH0 = "original",
+                                        nstart.o = 500, nstart.b = 30)
+                       #b <- clusGap_con(dataset, FUN=kmeans, nstart = 250, K.min = minclust, K.max=maxclust, B=clust.rep, spaceH0 = "original")
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")+(minclust-1)
+                       records[1] <- opt.cluster
+
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")+(minclust-1)
+                       records[2] <- opt.cluster
+
+                       # kl
+                       results <- NbClust(dataset, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "kl", alphaBeale = 0.1)
+                       records[3] <- results$Best.nc[1]
+
+                       # D indices
+                       results <- NbClust(dataset, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "dindex", alphaBeale = 0.1)
+                       index <- results$All.index
+                       index.dif <- rep(NA, (maxclust-minclust-1))
+                       for (j in (minclust+1):(maxclust-1)){
+                         i <- j - minclust
+                         index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+                       }
+                       records[4] <- which.min(index.dif) + minclust
+
+                       ## on the sub-datasets that are generated by SAS
+                       results.sel <- list()
+                       partition.sel <- list()
+                       ## number of variable selected (to be valid variables)
+                       n.sel <- rep(NA, searchclust-1)
+                       gap.sel <- rep(NA, searchclust-1)
+
+                       for (i in minclust:maxclust){
+                         results.gss <- hill_climb_GSS(dataset, i, nperms=n.rep,itermax=50,threshold=0,tolerance=1, kmeans_starts = 20)
+                         results.sel[[(i-minclust+1)]] <- results.gss$final_set
+                         partition.sel[[(i-minclust+1)]] <- results.gss$result
+                         n.sel[(i-minclust+1)] <- results.gss$s
+                         gap.sel[(i-minclust+1)] <- results.gss$gap
+                       }
+
+                       valid.set.all <- Reduce(intersect, results.sel)
+                       valid.set.sas <- valid.set.all
+                       new.data <- dataset[,valid.set.all]
+                       b <- clusGap_con(new.data, FUN=kmeans, K.min = minclust, K.max=maxclust, B=50, spaceH0 = "original",
+                                        nstart.o = 500, nstart.b = 30)
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")
+
+                       n_validvar <- n.sel[opt.cluster]
+                       signaling.set.sas.g <- results.sel[[opt.cluster]]
+                       cluster.assign.test <- partition.sel[[opt.cluster]]
+
+                       records[5] <- opt.cluster + (minclust-1)
+
+                       opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")
+                       n_validvar <- n.sel[opt.cluster]
+                       signaling.set.sas.f <- results.sel[[opt.cluster]]
+                       cluster.assign.test <- partition.sel[[opt.cluster]]
+
+                       records[6] <- opt.cluster + (minclust-1)
+
+                       # kl
+                       results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "kl", alphaBeale = 0.1)
+                       # best selected clusters
+                       opt.cluster <- results$Best.nc[1]
+                       records[7] <- opt.cluster
+
+                       # D indices
+                       results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                          method = "kmeans", index = "dindex", alphaBeale = 0.1)
+                       index <- results$All.index
+                       index.dif <- rep(NA, (maxclust-minclust-1))
+                       for (j in (minclust+1):(maxclust-1)){
+                         i <- j - minclust
+                         index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+                       }
+                       opt.cluster<- which.min(index.dif) + minclust
+                       records[8] <- opt.cluster
+
+                       ## on the sub-datasets that are generated by CKM
+
+                       results <- try(CKMSelAll(dataset, minclust = minclust, maxclust=maxclust, kmeans_starts = 20))
+                       if(!inherits(results, "try-error")){
+
+                         records[9] <- results[[1]]$opt.cluster
+                         stable.set <- results[[3]]
+
+                         b <- results[[2]]
+                         opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "firstmax")
+                         records[10] <- opt.cluster+ (minclust-1)
+
+                         ## new dataset
+                         new.data <- dataset[,stable.set]
+                         # kl
+                         results_kl <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                               method = "kmeans", index = "kl", alphaBeale = 0.1)
+                         # best selected clusters
+                         opt.cluster <- results_kl$Best.nc[1]
+                         records[11] <- opt.cluster
+
+                         # D indices
+                         results_dindex <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = minclust, max.nc = maxclust,
+                                                   method = "kmeans", index = "dindex", alphaBeale = 0.1)
+                         index <- results_dindex$All.index
+                         index.dif <- rep(NA, (maxclust-minclust-1))
+                         for (j in (minclust+1):(maxclust-1)){
+                           i <- j - minclust
+                           index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+                         }
+                         opt.cluster<- which.min(index.dif) + minclust
+                         records[12] <- opt.cluster
+                       }
+
+                       ## results and reports
+                       results <- list(data = sim.data, records = records)
+
+                       save(results, file = paste0(h, ".RData"))
+                     }
+
+stopCluster(c1)

@@ -1,0 +1,65 @@
+############################################
+######### code for the application #########
+############################################
+
+############## load the data set
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis")
+autism.t <- read.csv("autism_new.csv", sep = ",")
+autism <- t(autism.t)
+rownames(autism)
+autism <- autism[-c(1,13,14,28),]
+missing <- apply(autism, 2, function(x) sum(is.na(x)))
+length(which(missing != 0))
+sd.missing <- apply(autism, 2, sd)
+length(which(sd.missing == 0))
+autism.clean <- autism[,-which(sd.missing == 0)]
+autism.center <- scale(autism.clean, scale = FALSE)
+mean.center <- apply(autism.center, 2, function(x) sqrt(sum(x^2)))
+autism.st <- sweep(autism.center, 2, mean.center, FUN = "/")
+
+##################
+######## running the CKM algorithm
+n.rep <- 20
+set.seed(921009)
+results.ckm <- CKMSelVar(autism.st, n.cluster = 2, kmeans_starts = n.rep)
+set.seed(921009)
+results.km <- kmeans(autism.st, centers = 2, nstart = n.rep)
+set.seed(921009)
+results.sas <- hill_climb_GSS(X = autism.st, k = 2, nperms=n.rep,itermax=20,threshold=0,tolerance=1)
+## the indices of signaling variables
+signaling_set <- results.ckm$signaling.set
+## the vector that represents the resulted cluster partition
+cluster_assign <- results.ckm$cluster.assign
+### save the results
+save(results.ckm, file = "results_ckm.RData")
+### plot the results of CKM
+ckm.object <- results.ckm
+signaling.set <- ckm.object$signaling.set
+cluster.assign <- ckm.object$cluster.assign
+n.cluster <- ckm.object$opt.cluster
+dataset <- ckm.object$org.data
+
+new.data <- dataset[, signaling.set]
+cluster.center <- matrix(nrow = n.cluster, ncol = length(signaling.set))
+colnames(cluster.center) <- as.character(signaling.set)
+
+for (i in 1:n.cluster){
+  if(sum(cluster.assign == i) != 1){
+    cluster.center[i,] <- apply(new.data[cluster.assign == i,], 2, mean)
+  }
+  if(sum(cluster.assign == i) == 1){
+    cluster.center[i,] <- new.data[cluster.assign == i,]
+  }
+}
+
+cluster.plot <- as.data.frame(t(cluster.center))
+for (i in 1:n.cluster){
+  colnames(cluster.plot)[i] <- paste0("Cluster ", i)
+}
+
+ggparcoord(cluster.plot, columns = 1:n.cluster,  scale = "globalminmax",
+           showPoints = TRUE, title = "Cluster Centroids", alphaLines = .3)+
+  scale_color_viridis(discrete = TRUE)+
+  ylab("Centroids") +
+  xlab("Clusters")
+

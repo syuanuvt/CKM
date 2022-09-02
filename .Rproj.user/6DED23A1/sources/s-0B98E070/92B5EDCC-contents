@@ -1,0 +1,673 @@
+#### the function provides a summary as well as some visualizations of the
+library(sparcl)
+library(rARPACK)
+library(combinat)
+library(mclust)
+library(dplyr)
+library(bookdown)
+library(Biobase)
+library(doParallel)
+library(mclust)
+library(clustrd)
+library(cluster)
+library(remotes)
+library(RSpectra)
+library(GGally)
+library(CKM)
+library(ggplot2)
+#library(foreign)
+#library("kableExtra")
+#library("shiny")
+#library(tidyr)
+#library("RSpectra")
+#library(descr)
+#library(tinytex)
+library(RColorBrewer)
+library(mice)
+#library(NbClust)
+#devtools::install_github("yixuan/RSpectra")
+
+#tinytex::tlmgr_install("multirow")
+
+##################### sim1
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis/sim1_2")
+n.cluster <- 3
+n.obs <- c(75, 225)
+n.noisevar <- c(5, 25, 50, 100, 500, 1000)
+var <- 1
+n.validvar <- c(25,50,100)
+nmu <- c(0.6,0.7,0.8,1)
+
+con.rep <- 1:12
+condition0 <- expand.grid(nobs = n.obs, nnoisevar= n.noisevar, nvalidvar = n.validvar,
+                          nmu = nmu, rep = con.rep)
+condition0$ckm.ce <- rep(NA, nrow(condition0))
+condition0$simple.ce <- rep(NA, nrow(condition0))
+condition0$skm.ce <- rep(NA, nrow(condition0))
+condition0$ckm.prop <- rep(NA, nrow(condition0))
+condition0$simple.prop <- rep(NA, nrow(condition0))
+condition0$skm.prop <- rep(NA, nrow(condition0))
+
+for (i in 1:1728){#nrow(condition0)){
+  load(paste0(i, ".RData"))
+  condition0[i,6] <- out[[1]][[1]]
+  condition0[i,7] <- out[[2]][[1]]
+  condition0[i,8] <- out[[3]][[1]]
+  valid.set <- out[[1]][[3]]
+  condition0[i,9] <- sum(valid.set %in% 1:condition0$nvalidvar[i]) / condition0$nvalidvar[i]
+  valid.set <- out[[2]][[3]]
+  condition0[i,10] <- sum(valid.set %in% 1:condition0$nvalidvar[i]) / condition0$nvalidvar[i]
+  if(is.na(out[[3]])){
+    condition0[i,11] <- NA
+  }
+  if(!is.na(out[[3]])){
+    valid.set <- out[[3]][[3]]
+    condition0[i,11] <- sum(valid.set %in% 1:condition0$nvalidvar[i]) / condition0$nvalidvar[i]
+  }
+}
+condition0$nnoisevar <-as.factor(condition0$nnoisevar)
+levels(condition0$nnoisevar) <- c("V=5", "V=25", "V=50",
+                  "V=100", "V=500", "V=1000")
+condition0$nmu <- as.factor(condition0$nmu)
+levels(condition0$nmu) <- c(".6", ".7", ".8",
+                            "1")
+save(condition0, file = "sim1.RData")
+
+################
+setwd("C:/Users/u1275970/Documents/JCDR/CKM")
+load("condition0.dat")
+################
+## plots
+condition0 %>%
+  group_by(nmu, nnoisevar) %>%
+  ggplot(aes(y=ce, group = nmu, fill = nmu)) +
+  geom_boxplot() +
+  facet_grid(nvalidvar~nnoisevar, scale="free") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        text = element_text(size = 18, family = "serif")) +
+  ylab("Classification Error") +
+  scale_fill_continuous(name = "Distance of centroids")
+
+## results exploration
+## reports
+condition0 %>%
+  group_by(nobs) %>%
+  summarise(ce = mean(ce, na.rm = TRUE))
+
+condition0 %>%
+  group_by(nnoisevar) %>%
+  summarise(ce = mean(ce, na.rm = TRUE))
+
+condition0 %>%
+  group_by(nvalidvar) %>%
+  summarise(ce = mean(ce, na.rm = TRUE))
+
+condition0 %>%
+  group_by(nmu) %>%
+  summarise(ce = mean(ce, na.rm = TRUE))
+
+condition0 %>%
+  summarise(ce = mean(ce, na.rm = TRUE))
+
+## create a table
+condition0.clean <- condition0 %>%
+  group_by(nnoisevar, nvalidvar, nmu) %>%
+  summarise(cer = mean(ce)) %>%
+  ungroup() %>%
+  as.data.frame()%>%
+  reshape(idvar = c("nmu", "nvalidvar"), timevar = "nnoisevar", direction = "wide", v.names = "cer")
+
+kable(condition0.clean, format = "latex", booktabs = T,
+      longtable = T) %>%
+  kable_styling()
+
+
+##################### sim2
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis/sim2")
+n.cluster <- 3
+n.obs <- c(75, 225)
+n.noisevar <- c(5, 25, 50, 100, 500, 1000)
+var <- 1
+n.rep <- 20
+n.validvar <- 50
+nmu <- c(0.6,0.7,0.8,1)
+con.rep <- 1:50
+condition1 <- expand.grid(nobs = n.obs, nnoisevar= n.noisevar, nmu = nmu, rep = con.rep)
+condition1$ckm <- rep(NA, nrow(condition1))
+condition1$simple <- rep(NA, nrow(condition1))
+condition1$skm <- rep(NA, nrow(condition1))
+condition1$km <- rep(NA, nrow(condition1))
+condition1$rkm <- rep(NA, nrow(condition1))
+condition1$ckm.length <- rep(NA, nrow(condition1))
+condition1$simple.length <- rep(NA, nrow(condition1))
+condition1$skm.length <- rep(NA, nrow(condition1))
+condition1$km.length <- rep(NA, nrow(condition1))
+condition1$rkm.length <- rep(NA, nrow(condition1))
+condition1$ckm.time <- rep(NA, nrow(condition1))
+condition1$simple.time <- rep(NA, nrow(condition1))
+condition1$skm.time <- rep(NA, nrow(condition1))
+condition1$km.time <- rep(NA, nrow(condition1))
+condition1$rkm.time <- rep(NA, nrow(condition1))
+
+valid <- rep(0, nrow(condition1))
+for (i in 1:nrow(condition1)){
+  if(file.exists(paste0(i, ".RData"))){
+    valid[i] <- 1
+    load(paste0(i, ".RData"))
+    records <- results$records
+    condition1[i,5:9] <- records[1,]
+    condition1[i,10:14] <- records[2,]
+    condition1[i,15:19] <- records[3,]
+  }
+}
+condition1$nnoisevar <-as.factor(condition1$nnoisevar)
+levels(condition1$nnoisevar) <- c("V=5", "V=25", "V=50",
+                                  "V=100", "V=500", "V=1000")
+condition1$nmu <- as.factor(condition1$nmu)
+levels(condition1$nmu) <- c(".6", ".7", ".8",
+                            "1")
+save(condition1, file = "sim2.RData")
+
+summary.condition1.ce <- tidyr::gather(condition1, methods, cer, c(ckm,simple,skm,km,rkm), factor_key=TRUE)
+summary.condition1.ce$methods <- as.factor(summary.condition1.ce$methods)
+summary.condition1.ce %>%
+  ggplot(aes(x=nnoisevar, y=cer, fill=methods)) +
+  geom_boxplot() +
+  facet_grid(nmu~nnoisevar, scale="free")+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        text = element_text(size = 16, family = "serif")) +
+  ylab("Classification Error")
+
+
+summary.condition1.time <- tidyr::gather(condition1, methods, time, c(ckm,simple,skm,km,rkm), factor_key=TRUE)
+summary.condition1.time$methods <- as.factor(summary.condition1.time$methods)
+summary.condition1.time %>%
+  ggplot(aes(x=nnoisevar, y=time, fill=methods)) +
+  geom_boxplot() +
+  facet_grid(nmu~nnoisevar, scale="free")
+summary.condition1.ce %>%
+  group_by(methods, nnoisevar, nmu, nobs) %>%
+  summarise(ce = mean(cer, na.rm = TRUE)) %>%
+  filter(nmu == .6, nnoisevar %in% c(500,1000))
+
+condition1.ce <- condition1 %>%
+  group_by(nnoisevar, nmu) %>%
+  summarise(ckm = mean(ckm), simple = mean(simple), skm = mean(skm, na.rm = TRUE), km = mean(km), rkm = mean(rkm))
+condition1.ce.sd <- condition1 %>%
+  group_by(nnoisevar, nmu) %>%
+  summarise(ckm = sd(ckm), simple = sd(simple), skm = sd(skm, na.rm = TRUE), km = sd(km), rkm = sd(rkm))
+
+condition1.time <- condition1 %>%
+  group_by(nnoisevar, nmu) %>%
+  summarise(ckm = mean(ckm.time), simple = mean(simple.time), skm = mean(skm.time, na.rm = TRUE), km = mean(km.time), rkm = mean(rkm.time))
+condition1.time.sd <- condition1 %>%
+  group_by(nnoisevar, nmu) %>%
+  summarise(ckm = sd(ckm.time), simple = sd(simple.time), skm = sd(skm.time, na.rm = TRUE), km = sd(km.time), rkm = sd(rkm.time))
+
+condition1.combine <- cbind(as.data.frame(condition1.ce), as.data.frame(condition1.time[,3:7]))
+condition1.sd <- cbind(as.data.frame(condition1.ce.sd), as.data.frame(condition1.time.sd[,3:7]))
+condition1.table <- as.data.frame(do.call(cbind, lapply(3:ncol(condition1.combine), function(i) paste0(condition1.combine[ , i], " (", condition1.sd[ , i], ")"  ) )))
+condition1.table <- cbind(condition1.combine[,1:2], condition1.table)
+
+###################reports
+condition1 %>%
+  summarise(ckm = mean(ckm), simple = mean(simple), skm = mean(skm, na.rm = TRUE), km = mean(km), rkm = mean(rkm))
+
+condition1 %>%
+  group_by(nmu) %>%
+  summarise(ckm = mean(ckm), simple = mean(simple), skm = mean(skm, na.rm = TRUE), km = mean(km), rkm = mean(rkm))
+
+condition1 %>%
+  group_by(nnoisevar) %>%
+  summarise(ckm = mean(ckm), simple = mean(simple), skm = mean(skm, na.rm = TRUE), km = mean(km), rkm = mean(rkm))
+
+condition1 %>%
+  summarise(ckm = mean(ckm.time), simple = mean(simple.time), skm = mean(skm.time, na.rm = TRUE), km = mean(km.time), rkm = mean(rkm.time))
+
+##################### sim3
+set.seed(970912)
+n.cluster <- c(3,5)
+n.obs <- 225
+n.noisevar <- c(5, 25, 50, 100, 500, 1000)
+var <- 1
+n.validvar <- 50
+maxclust <- 8
+
+nmu <- c(0.6, 1)
+con.rep <- 1:50
+condition2 <- expand.grid(ncluster = n.cluster, nobs = n.obs, nnoisevar= n.noisevar, nmu = nmu, rep = con.rep)
+
+######################
+condition2.method <- as.data.frame(matrix(nrow = nrow(condition2), ncol = 14))
+condition2.results <- as.data.frame(matrix(nrow = nrow(condition2), ncol = 14))
+condition2 <- cbind(condition2, condition2.method)
+
+setwd("C:/Users/u1275970/Documents/JCDR/CKM/sim5.new")
+for (i in 1:nrow(condition2)){
+  if(file.exists(paste0(i, ".RData"))){
+    load(paste0(i, ".RData"))
+    records <- analysis.results$records
+    condition2[i,6:19] <- records[c(1:11,14:16),1]
+  }
+}
+
+for(i in 1:nrow(condition2.results)){
+  for(j in 1:ncol(condition2.results)){
+    condition2.results[i,j] <- condition2[i, (5+j)] == condition2$ncluster[i]
+  }
+}
+
+condition2.results <- cbind(condition2[,1:5], condition2.results)
+condition2.results <- condition2.results[-c(9:10)]
+colnames(condition2.results)[6:17] <- c("GlobalMax", "FirstMax","KL", "Silhouette", "ScreeRatio", "Bootstrap","GlobalMax.a", "FirstMax.a","KL.a", "Silhouette.a", "ScreeRatio.a", "Bootstrap.a")
+
+##### only the useful indicies
+condition2.results.useful <- condition2.results %>%
+  select(-Silhouette, -Bootstrap, -Silhouette.a, -Bootstrap.a)
+
+condition2.results.useful[,6:9] <- condition2.new.results[,6:9]
+
+##### save the results
+setwd("C:/Users/u1275970/Documents/JCDR/CKM")
+save(condition2.results.useful, file = "condition2.RData")
+
+######################
+summary.condition2 <- condition2.results.useful %>%
+  group_by(ncluster, nnoisevar) %>%
+  summarise(GlobalMax = sum(GlobalMax), FirstMax = sum(FirstMax), KL = sum(KL), ScreeRatio = sum(ScreeRatio), GlobalMax.a = sum(GlobalMax.a), FirstMax.a = sum(FirstMax.a), KL.a = sum(KL.a), ScreeRatio.a = sum(ScreeRatio.a)) %>%
+  mutate(GlobalMax = GlobalMax/100, FirstMax = FirstMax/100, KL = KL/100, ScreeRatio = ScreeRatio / 100, GlobalMax.a = GlobalMax.a / 100, FirstMax.a = FirstMax.a / 100, KL.a = KL.a / 100, ScreeRatio.a = ScreeRatio.a / 100)
+
+media <- as.matrix(summary.condition2[,3:10])
+media.condition2 <- as.data.frame(matrix(
+  sprintf("%.0f%%", media*100),
+  nrow(summary.condition2),
+  dimnames = dimnames(summary.condition2[,3:10])
+))
+
+condition2.results.useful %>%
+  summarise(GlobalMax = sum(GlobalMax), FirstMax = sum(FirstMax), KL = sum(KL), ScreeRatio = sum(ScreeRatio), GlobalMax.a = sum(GlobalMax.a), FirstMax.a = sum(FirstMax.a), KL.a = sum(KL.a), ScreeRatio.a = sum(ScreeRatio.a))
+
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis")
+condition2.new <- cbind(condition2, as.data.frame(matrix(nrow = nrow(condition2), ncol = 4)))
+condition2.new.results <- cbind(condition2, as.data.frame(matrix(nrow = nrow(condition2), ncol = 4)))
+for(i in 1:nrow(condition2.new)){
+  load(paste0(i, "a", ".RData"))
+  condition2.new[i,6:9] <- records
+}
+for(i in 1:nrow(condition2.results)){
+  for(j in 1:4){
+    condition2.new.results[i,(5+j)] <- condition2.new[i, (5+j)] == condition2.new$ncluster[i]
+  }
+}
+condition2.results[,6:9]
+
+##########################################################
+### analysis step 1: with CKM and SAS only
+##################### sim3
+set.seed(970912)
+n.cluster <- c(3,5)
+n.obs <- 225
+n.noisevar <- c(5, 25, 50, 100, 500, 1000)
+var <- 1
+n.validvar <- 50
+maxclust <- 8
+nmu <- c(0.6, 0.7, 0.8, 1)
+con.rep <- 1:50
+sim3 <- expand.grid(ncluster = n.cluster, nnoisevar= n.noisevar, nmu = nmu, rep = con.rep)
+######################
+sim3.results <- as.data.frame(matrix(nrow = nrow(sim3), ncol = 16+ncol(sim3)))
+sim3.results[,1:4] <- sim3
+sim3.correct <- as.data.frame(matrix(nrow = nrow(sim3), ncol = 16+ncol(sim3)))
+sim3.correct[,1:4] <- sim3
+sim3.results <- sim3.results[1:2400,]
+sim3.correct <- sim3.correct[1:2400,]
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis/sim5")
+for (i in 1:2400){
+  if(file.exists(paste0(i, ".RData"))){
+    load(paste0(i, ".RData"))
+    records <- results[[2]]
+    sim3.results[i,5:ncol(sim3.results)] <- records[1:16,1]
+  }
+}
+for (i in 1:nrow(sim3.correct)){
+  sim3.correct[i,5:ncol(sim3.correct)] <- sim3.results[i,5:ncol(sim3.results)] == sim3.results$ncluster[i]
+}
+colnames(sim3.results) <- c("ncluster", "nnoisevar", "mu", "rep",
+                            "all_KL", "all_DIndex","all_global", "all_first",
+                            "sas_global", "sas_first","sas_KL", "sas_DIndex", "sas_global_max", "sas_local_max",
+                            "ckm_global", "ckm_first","ckm_KL", "ckm_DIndex", "ckm_global_max", "ckm_local_max")
+colnames(sim3.correct) <- c("ncluster", "nnoisevar", "mu", "rep",
+                            "all_KL", "all_DIndex","all_global", "all_first",
+                            "sas_global", "sas_first","sas_KL", "sas_DIndex", "sas_global_max", "sas_local_max",
+                            "ckm_global", "ckm_first","ckm_KL", "ckm_DIndex", "ckm_global_max", "ckm_local_max")
+##### only the useful indicies
+apply(sim3.correct[,5:ncol(sim3.correct)], 2, sum)
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis")
+sim3.results.useful <- sim3.correct[,c(1:12,15:18)]
+save(sim3.results.useful, file = "sim3.RData")
+load("sim3.RData")
+
+
+#### new dataset
+sim3.correct.optimal <- sim3.correct %>%
+  filter(sim3.correct$ncluster == 3)
+apply(sim3.correct.optimal[,5:ncol(sim3.correct.optimal)], 2, mean)
+
+
+
+
+
+
+###################### old, abandoned
+condition2$newcorrect <- condition2$newselect == condition2$ncluster
+condition2$newcorrect1 <- condition2$newselect1 == condition2$ncluster
+condition2$oldcorrect <- condition2$oldselect == condition2$ncluster
+
+setwd("C:/Users/u1275970/Documents/JCDR/CKM")
+save(condition2, file = "condition2.dat")
+
+summary.condition2 <- condition2 %>%
+  select(ncluster, nobs, nnoisevar, nmu, newcorrect1, newselect1, oldcorrect, oldselect, newcorrect, newselect) %>%
+  group_by(ncluster, nnoisevar) %>%
+  summarise(new = sum(newcorrect1), old = sum(oldcorrect), new1 = sum(newcorrect)) %>%
+  mutate(new = new/100, old = old/100, new1 = new1/100)
+
+media <- as.matrix(summary.condition2[,3:4])
+media.condition2 <- as.data.frame(matrix(
+  sprintf("%.0f%%", media*100),
+  nrow(summary.condition2),
+  dimnames = dimnames(summary.condition2[,3:4])
+))
+
+summary.condition2.final <- cbind(as.data.frame(summary.condition2[,1:2]), media.condition2)
+names(summary.condition2.final) <- c("", "", "subset", "fullset")
+
+
+###################### the application
+setwd("C:/Users/u1275970/Documents/JCDR")
+cancer <- read.spss(file = "dat.sav", use.value.labels = FALSE, to.data.frame = TRUE)
+## pre-proces
+cancer.useful <- cancer[,c(112:125,129:168)]## only keep the most informative variables
+## calculate the number of missings
+no.miss <- rep(NA, nrow(cancer.useful))
+for(i in 1:nrow(cancer.useful)){
+   no.miss[i] <- sum(is.na(cancer.useful[i,]))
+}
+## number of no missingness
+sum(no.miss == 0)
+## keep the data with no missingness
+cancer.useful.final <- cancer.useful[no.miss == 0, ]
+cancer.useful.final <- cancer.useful.final[,-c(33:36,51:54)]
+
+# scenerio 1: 500 observations
+set.seed(970912)
+sample1 <- cancer.useful.final[sample(1:nrow(cancer.useful.final), 500), ]
+sample1.st <- scale(sample1)
+maxclust <- 8
+results.sample1 <- CKMSelAll(sample1.st, maxclust, kmeans_starts = 50)
+
+# scenerio 2: 300 observations
+setwd("C:/Users/u1275970/Documents/JCDR/CKM")
+save(results.sample2, file = "application.dat")
+set.seed(970912)
+sample2 <- cancer.useful.final[sample(1:nrow(cancer.useful.final), 300), ]
+sample2.st <- scale(sample2)
+maxclust <- 6
+results.sample2 <- CKMSelAll(sample2.st, maxclust, kmeans_starts = 100)
+plot(results.sample2)
+
+###################### the application
+setwd("C:/Users/u1275970/Documents/JCDR")
+cancer <- read.spss(file = "dat.sav", use.value.labels = FALSE, to.data.frame = TRUE)
+
+# with the recoding of the variables
+set.seed(921009)
+cancer[,129:136][cancer[,129:136] == 998] <- NA
+cancer.filter <- cancer[, c(112:125, 129:146, 151:164)]
+## calculate the number of missings
+no.miss <- rep(NA, nrow(cancer.filter))
+for(i in 1:nrow(cancer.filter)){
+  no.miss[i] <- sum(is.na(cancer.filter[i,]))
+}
+a <- 1:nrow(cancer.filter)
+cancer.useful <- cancer.filter[sample(a[no.miss==0], 2000), ]
+cancer.useful$DS1 <- 4 - cancer.useful$DS1
+cancer.useful$DS3 <- 4 - cancer.useful$DS3
+cancer.useful$BIPQ3 <- 11 - cancer.useful$BIPQ3
+cancer.useful$BIPQ4 <- 11 - cancer.useful$BIPQ4
+cancer.useful$BIPQ7 <- 11 - cancer.useful$BIPQ7
+cancer.useful$FAS4 <- 6 - cancer.useful$FAS4
+cancer.useful$FAS10 <- 6 - cancer.useful$FAS10
+cancer.useful$HADS1 <- 3 - cancer.useful$HADS1
+cancer.useful$HADS3 <- 3 - cancer.useful$HADS3
+cancer.useful$HADS5 <- 3 - cancer.useful$HADS5
+cancer.useful$HADS6 <- 3 - cancer.useful$HADS6
+cancer.useful$HADS8 <- 3 - cancer.useful$HADS8
+cancer.useful$HADS10 <- 3 - cancer.useful$HADS10
+cancer.useful$HADS11 <- 3 - cancer.useful$HADS11
+cancer.useful$HADS13 <- 3 - cancer.useful$HADS13
+cancer.useful.st <- scale(cancer.useful)
+maxclust <- 15
+results.sample2 <- CKMSelAll(cancer.useful.st[,-c(34,36,38,40,42,44,46)], maxclust, kmeans_starts = 100, method = "firstSEmax")
+
+var.ind.f <-  c(rep("dep1", 14),rep("bipq", 8), rep("fatigue", 10), rep(c("anx","dep2"), 7))
+plot.ckm(results.sample2, var.ind.f)
+
+### some sequent analyses
+load("application_st.dat")
+selected.obs <- as.numeric(row.names(results.sample2$org.data))
+########
+## the full set of indices
+var.ind.f <-  c(rep("dep1", 14), rep("bipq", 8), rep("fatigue", 10), rep(c("anx","dep2"), 14))
+var.ind <- var.ind.f[results.sample2$signaling.set]
+plot.ckm(results.sample2, var.ind)
+
+cancer.selected <- cancer[selected.obs, ] %>%
+  select(tumor, ROOK, ALCOHOL)
+cancer.selected$cluster <- results.sample2$cluster.assign
+colnames(cancer.selected)[2:3] <- c("smoke", "alcohol")
+cancer.selected %>%
+  group_by(cluster) %>%
+  summarise(tumor = mode(tumor), smoke = mode(smoke, na.rm = TRUE), alcohol = mode(alcohol, na.rm = TRUE))
+cancer.selected %>%
+  filter(cluster == 1)
+cancer.selected %>%
+  filter(cluster == 2)
+cancer.selected %>%
+  filter(cluster == 3)
+cancer.selected %>%
+  filter(cluster == 4)
+cancer.selected %>%
+  filter(cluster == 5)
+
+############################
+### the application
+setwd("C:/Users/u1275970/Documents/JCDR/applications")
+parent <- read.spss(file = "parentreportdata.sav", use.value.labels = FALSE, to.data.frame = TRUE)
+parent.ind <- rep(0, length = nrow(parent))
+for (i in 1:nrow(parent)){
+  parent.ind[i] <- sum(is.na(parent[i,]))
+}
+parent.use <- parent[parent.ind < 36,]
+#############
+set.seed(921009)
+mice.int <- mice(parent.use, m = 5, maxit = 5)
+parent.complete <- complete(mice.int, 1)
+save(parent.complete, file = "parent_complete.RData")
+#############
+parent.sub <- parent.complete[,240:ncol(parent.complete)]
+parent.sub1 <- parent.sub[,1:61]
+#############
+sample3.st <- scale(parent.sub)
+maxclust <- 12
+results <- CKMSelAll_a(sample3.st, maxclust)
+signaling.set <- results$stable.set
+new.data <- sample3.st[,signaling.set]
+results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = 2, max.nc = maxclust,
+                   method = "kmeans", index = "dindex", alphaBeale = 0.1)
+index <- results$All.index
+index.dif <- rep(NA, (maxclust - 3))
+for (i in 1:(maxclust - 3)){
+  index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+}
+
+b <- clusGap(new.data, FUN=kmeans, K.max=maxclust, B=50, spaceH0 = "original")
+opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")
+##################
+#############
+sample4.st <- scale(parent.sub1)
+maxclust <- 12
+results <- CKMSelAll_a(sample4.st, maxclust)
+signaling.set <- results$stable.set
+new.data <- sample4.st[,signaling.set]
+results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = 2, max.nc = maxclust,
+                   method = "kmeans", index = "dindex", alphaBeale = 0.1)
+index <- results$All.index
+index.dif <- rep(NA, (maxclust - 3))
+for (i in 1:(maxclust - 3)){
+  index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+}
+
+b <- clusGap(new.data, FUN=kmeans, K.max=maxclust, B=50, spaceH0 = "original")
+opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")
+####################################
+setwd("C:/Users/u1275970/Documents/JCDR/applications")
+autism <- read.csv("AutismData.csv", sep = ";")
+autism <- t(autism)
+missing <- apply(autism, 2, function(x) sum(is.na(x)))
+sum(missing != 0 )
+sd.missing <- apply(autism, 2, sd)
+sd.missing != 0
+#autism.select <- autism[,1:2500]
+autism.new <- as.matrix(autism[,sd.missing != 0])
+autism.st <- scale(autism.new)
+maxclust <- 6
+results <- CKMSelAll_a(autism.st, maxclust)
+signaling.set <- results$stable.set
+new.data <- autism.st[,signaling.set]
+results <- NbClust(new.data, diss = NULL, distance = "euclidean", min.nc = 2, max.nc = maxclust,
+                   method = "kmeans", index = "dindex", alphaBeale = 0.1)
+index <- results$All.index
+index.dif <- rep(NA, (maxclust - 3))
+for (i in 1:(maxclust- 3)){
+  index.dif[i] <- (index[i+2] - index[i+1]) / (index[i+1]-index[i])
+}
+
+b <- clusGap(new.data, FUN=kmeans, K.max=maxclust, B=50, spaceH0 = "original")
+opt.cluster <- maxSE(b$Tab[,3], b$Tab[,4], method = "globalmax")
+plot(b$Tab[,3])
+
+####### use the elbow point of the gap
+results.new <- CKMSelVar(autism.st, 3)
+
+#####################################################
+setwd("C:/Users/Shuai Yuan/Documents/CKM_1/data analysis")
+autism.t <- read.csv("autism_new.csv", sep = ",")
+autism <- t(autism.t)
+rownames(autism)
+autism <- autism[-c(1,13,14,28),]
+missing <- apply(autism, 2, function(x) sum(is.na(x)))
+length(which(missing != 0))
+sd.missing <- apply(autism, 2, sd)
+length(which(sd.missing == 0))
+autism.clean <- autism[,-which(sd.missing == 0)]
+autism.center <- scale(autism.clean, scale = FALSE)
+mean.center <- apply(autism.center, 2, function(x) sqrt(sum(x^2)))
+autism.st <- sweep(autism.center, 2, mean.center, FUN = "/")
+############
+#########
+#apply(autism.st, 2, function(x) sum(x^2))
+n.rep <- 20
+prc1 <- proc.time()
+results.ckm <- CKMSelVar(autism.st, 2)
+stable.set <- results.ckm$signaling.set
+a1 <- proc.time() - prc1
+prc2 <- proc.time()
+results.gss <- hill_climb_GSS(X = autism.st, k = 2, nperms=n.rep,itermax=20,threshold=0,tolerance=1)
+a2 <- proc.time() - prc2
+prc3 <- proc.time()
+autism.new <- cbind(autism.st, c(rep(1,13), rep(2,14)))
+autism.new <- as.data.frame(autism.new)
+names(autism.new)[43894] <- "ID"
+autism.new$ID <- as.factor(autism.new$ID)
+autism.effect <- rep(NA, 43893)
+for(i in 1:43893){
+  a <- lm(autism.new[,i] ~ autism.new[,43894])
+  autism.effect[i] <- abs(a$coefficients[2])
+}
+sig.genes <- sort(autism.effect, index.return = TRUE, decreasing = TRUE)$ix[1:293]
+rest.genes <- setdiff(1:43893, sig.genes)
+save(results.ckm, file = "results_ckm.RData")
+##############
+set.seed(921009)
+n <- 1707
+rest.selected <- sample(rest.genes, n)
+new.data <- autism.st[,c(sig.genes, rest.selected)]
+set.seed(921009)
+results.km.new <- kmeans(new.data, centers = 2)
+set.seed(921009)
+results.ckm.new <- CKMSelVar(new.data, 2)
+results.ckm.new$signaling.set
+length(results.ckm.new$signaling.set)
+results.ckm.new$cluster.assign
+set.seed(921009)
+results.sas.new <- hill_climb_GSS(X = new.data, k = 2, nperms=n.rep,itermax=20,threshold=0,tolerance=1)
+results.sas.new$final_set
+length(results.sas.new$final_set)
+results.sas.new$result
+############################################
+permute.method <- try(KMeansSparseCluster.permute(new.data, K = 2, wbounds = seq(1.001,20,len= 50), nperms=10))
+max.gap <- max(permute.method$gaps)
+max.gap.sd <- permute.method$sdgaps[which(permute.method$gaps == max.gap)[1]]
+gap.crit <- max.gap - max.gap.sd
+wbound.opt <- permute.method$wbounds[sort(which(permute.method$gaps < gap.crit), decreasing = TRUE)[1]]
+result.skm.new <- KMeansSparseCluster(new.data, K = n.cluster, wbounds = 14, nstart = 1000)
+result.skm.new[[1]]$Cs
+length(which(result.skm.new[[1]]$ws != 0))
+which(result.skm.new[[1]]$ws != 0)
+#############################################
+## RKM
+result.rkm.new <- cluspca(new.data, nclus = 2, ndim = 1, method = "RKM")
+result.rkm.new$cluster
+############################
+#n.rep <- 20
+##prc1 <- proc.time()
+#results.ckm.three <- CKMSelVar(autism.st, 3)
+#a1 <- proc.time() - prc1
+#prc2 <- proc.time()
+#results.gss.three <- hill_climb_GSS(X = autism.st, k = 3, nperms=n.rep,itermax=20,threshold=0,tolerance=1)
+#a2 <- proc.time() - prc2
+#prc3 <- proc.time()
+#stable.set <- results.ckm.three$signaling.set
+#results.ckm.three.two <- CKMSelVar(autism.st[,stable.set], 3)
+####################################
+results.km <- kmeans(autism.st, centers = 2)
+permute.method <- try(KMeansSparseCluster.permute(autism.st, K = 2, wbounds = seq(1.001,10,len= 50), nperms=n.rep))
+a3 <- proc.time() - prc3
+normal <- 1
+if(inherits(permute.method, "try-error"))
+{
+  normal <- 0
+}
+if(!inherits(permute.method, "try-error"))
+{
+  max.gap <- max(permute.method$gaps)
+  max.gap.sd <- permute.method$sdgaps[which(permute.method$gaps == max.gap)[1]]
+  gap.crit <- max.gap - max.gap.sd
+  wbound.opt <- permute.method$wbounds[sort(which(permute.method$gaps < gap.crit), decreasing = TRUE)[1]]
+  result.method1 <- KMeansSparseCluster(dataset, K = n.cluster, wbounds = wbound.opt, nstart = 1000)
+  #records[2,3] <- length(which(result.method1[[1]]$ws != 0))
+  #records[1,3] <- classError(cluster.assign, result.method1[[1]]$Cs)[[2]]
+  #valid.set.test[[3]] <- which(result.method1[[1]]$ws != 0)
+}
+###################################
+gene <- read.csv("gene_full.csv", sep = ",")
+gene.clean <- dplyr::filter(gene, CONTROL_TYPE %in% c("FALSE","pos","neg"))
+gene.final <- gene.clean[-which(sd.missing == 0),]
+useful.gene <- gene.final$GENE_SYMBOL[stable.set]
+write.csv(useful.gene, file = "useful.gene.csv")
+ckm.plot(results.ckm)

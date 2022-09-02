@@ -1,0 +1,56 @@
+### install the CKM package if it has not been installed
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS="true")
+remotes::install_github("syuanuvt/CKM")
+#### examine the novel variable selection methods in k-means
+library(sparcl)
+library(rARPACK)
+library(combinat)
+library(mclust)
+library(dplyr)
+library(bookdown)
+library("doParallel")
+library(snow)
+library(mice)
+library(clustrd)
+library(cluster)
+library(remotes)
+library(GGally)
+library(CKM)
+library(fpc)
+library(NbClust)
+library(viridis)
+library(multichull)
+
+setwd("C:/Users/Shuai Yuan/Documents/Tutorial/data")
+emp.data <- read.csv("data.csv", sep = ";")
+emp.data.matrix <- as.matrix(emp.data)
+emp.data.matrix[which(emp.data.matrix == 999)] <- NA
+##
+emp.data.matrix[,c(95:97)][which(emp.data.matrix[,c(95:97)]==6)]<-NA
+a <- mice(emp.data.matrix[,3:ncol(emp.data.matrix)], m = 10, maxit = 10)
+emp.data.matrix.new <- cbind(emp.data.matrix[,1:2],complete(a,1))
+emp.data.matrix.new[,3:ncol(emp.data.matrix.new)] <- scale(emp.data.matrix.new[,3:ncol(emp.data.matrix)])
+save(emp.data.matrix.new, file = "data_tutorial.RData")
+try <- CKMSelAll(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]), minclust = 2, maxclust = 10)
+length(try$signaling.set)
+try$n.noisevar
+try$opt.cluster
+plot(1:9,try[[2]]$Tab[,3])
+try1 <- CKMSelVar(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]),3)
+plot(1:13,try1[[2]])
+try1[[3]]
+diff(try1[[2]])
+try1[[1]]$n.noisevar
+try2 <- CKMSelNo(as.matrix(emp.data.matrix.new[,3:ncol(emp.data.matrix.new)]),3,47)
+to.plot <- emp.data.matrix.new[,3:ncol(emp.data.matrix.new)][,try2$signaling.set]
+to.plot$cluster <- try2$cluster.assign
+try2$signaling.set
+PlotCoord(to.plot, type = "responses")
+PlotMap(to.plot)
+PlotCoord(to.plot)
+
+to.plot1 <- emp.data.matrix.new[,3:ncol(emp.data.matrix.new)][,c(38,39,45,46,49,50,58:98)]
+to.plot1$cluster <- try2$cluster.assign
+PlotCoord(to.plot1, type = "responses")
+try.all <- list(try, try1, try2)
+save(try.all, file = "try.all.RData")
