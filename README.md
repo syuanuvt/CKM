@@ -1,8 +1,11 @@
 # Cardinality K-Means (CKM): A Brief Tutorial
 The package implements the Cardinality K-Means algorithm that performs simultaneous variable selection and clustering. Compared to existing approaches, CKM is tested to be faster and yield at least comparable performance. The algorithm is especially suitable to tackle the clustering problem with a large numer of variables; in such cases picking up signaling variables is vital to recovering the clusters
 
-## corresponding address
-Issues on the packages could be filed as pull requests (recommended) or sent to s.yuan@
+## Corresponding address
+Issues on the packages could be filed as pull requests (recommended) or sent to s.yuan@uva.nl
+
+## New version
+A new version of CKM is currently under-development with updated functions for model selection. Stay tuned!
 
 ## Installation
 To install the Package, make sure that the R package "devtool" and "remotes" have been installed. Then, use the following code to install the Package CKM. 
