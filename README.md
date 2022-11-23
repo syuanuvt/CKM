@@ -30,7 +30,7 @@ The output of the function is a list containing two elements: (1) the dataset as
 nobs <- 60
 ncluster <- 3
 nnoisevar <- 100
-nsigvar <- 20
+nvalidvar <- 20
 mu <- 1 # the mean differences of the centroids between two neighboring clusters
 var <- 1 # therefore, each response is drawn from N(mean, 1)
 sim.data <- DataGenCKM(nobs, ncluster, nvalidvar, nnoisevar, mu, var)
